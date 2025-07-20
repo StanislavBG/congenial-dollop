@@ -7,18 +7,22 @@ export class Game {
   constructor() {
     const config: Phaser.Types.Core.GameConfig = {
       type: Phaser.AUTO,
-      width: 800,
-      height: 600,
+      width: 800,   // Single main area
+      height: 600,  // Single main area
       parent: 'game-container',
       backgroundColor: '#2c3e50',
       physics: {
         default: 'arcade',
         arcade: {
-          gravity: { y: 0 },
+          gravity: { x: 0, y: 0 },
           debug: false
         }
       },
-      scene: [MainScene]
+      scene: [MainScene],
+      input: {
+        keyboard: true,
+        mouse: true
+      }
     };
 
     this.game = new Phaser.Game(config);

@@ -7,10 +7,18 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0"
+    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+    "cap:add": "cap add",
+    "cap:copy": "cap copy",
+    "cap:sync": "cap sync",
+    "cap:open:ios": "cap open ios",
+    "cap:build:ios": "npm run build && cap copy ios",
+    "ios:prepare": "npm run build && cap sync ios"
   },
   "dependencies": {
-    "phaser": "^3.70.0"
+    "phaser": "^3.70.0",
+    "@capacitor/core": "^5.7.0",
+    "@capacitor/ios": "^5.7.0"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",
@@ -21,6 +29,7 @@
     "eslint-plugin-react-hooks": "^4.6.0",
     "eslint-plugin-react-refresh": "^0.4.4",
     "typescript": "^5.2.0",
-    "vite": "^5.0.0"
+    "vite": "^5.0.0",
+    "@capacitor/cli": "^5.7.0"
   }
 } 

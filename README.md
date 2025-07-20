@@ -63,4 +63,26 @@ src/
 - **Phaser.js**: 2D game framework
 - **TypeScript**: Type-safe JavaScript
 - **Vite**: Fast development server and build tool
-- **HTML5 Canvas**: Game rendering 
+- **HTML5 Canvas**: Game rendering
+- **Capacitor**: iOS deployment and mobile optimization
+
+## Mobile & iOS Deployment
+
+This game is optimized for mobile devices and can be deployed to the iOS App Store using Capacitor.
+
+### Mobile Features:
+- **Touch Controls**: Automatic mobile detection with touch-based movement and shooting
+- **Responsive Design**: Scales to fit any screen size
+- **Mobile-Optimized**: Full-screen experience with proper viewport settings
+
+### iOS Deployment:
+See `DEPLOYMENT.md` for complete iOS setup and App Store deployment instructions.
+
+### Quick iOS Setup:
+```bash
+npm install @capacitor/core @capacitor/cli @capacitor/ios
+npx cap init "Congenial Dollop Game" "com.congenialdollop.game"
+npx cap add ios
+npm run build && npx cap sync ios
+npx cap open ios
+``` 
