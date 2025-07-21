@@ -1,7 +1,9 @@
 import Phaser from 'phaser';
 import { Player } from '../entities/Player';
-import { Enemy } from '../entities/Enemy';
-import { Level, LEVEL_1, GameSettings, GAME_SETTINGS } from '../types/Level';
+
+import { GameSettings, GAME_SETTINGS } from '../types/Level';
+import { getLevel, getNextLevel } from '../levels/LevelDefinitions';
+import { SpawnManager } from '../managers/SpawnManager';
 
 export class MainScene extends Phaser.Scene {
   private player!: Player;
@@ -11,27 +13,46 @@ export class MainScene extends Phaser.Scene {
   private scoreText!: Phaser.GameObjects.Text;
   private playerInfoHeader!: Phaser.GameObjects.Text;
   private playerInfoDetails!: Phaser.GameObjects.Text;
-  private enemyInfoHeader!: Phaser.GameObjects.Text;
-  private enemyInfoDetails!: Phaser.GameObjects.Text;
   private levelInfoHeader!: Phaser.GameObjects.Text;
   private levelInfoDetails!: Phaser.GameObjects.Text;
   private healthSegments: Phaser.GameObjects.Rectangle[] = [];
   private healthText!: Phaser.GameObjects.Text;
   private controlsText!: Phaser.GameObjects.Text;
   private controlsDetails!: Phaser.GameObjects.Text;
-  private adminVisible: boolean = false;
+  private adminVisible: boolean = true; // Start with admin panel open
   private lastShootTime: number = 0;
   private gameStartTime: number = 0;
   private timerText!: Phaser.GameObjects.Text;
-  private currentLevel: Level = LEVEL_1;
+  private currentLevelId: number = 101; // Start in test mode for faster iteration
+  private spawnManager!: SpawnManager;
   private gameSettings: GameSettings = GAME_SETTINGS;
   private pauseText!: Phaser.GameObjects.Text;
   private levelText!: Phaser.GameObjects.Text;
-  private lastEnemySpawnTime: number = 0;
-  private enemiesSpawned: number = 0;
-  private gameState: 'playing' | 'paused' | 'gameOver' = 'playing';
+  private yellowDotHeader!: Phaser.GameObjects.Text;
+  private yellowDotDetails!: Phaser.GameObjects.Text;
+
+  private gameState: 'playing' | 'paused' | 'gameOver' | 'completed' = 'playing';
   private pauseStartTime: number = 0;
   private totalPauseTime: number = 0;
+  private levelCompleteText!: Phaser.GameObjects.Text | null;
+  private pauseReason: 'user' | 'levelComplete' | null = null;
+  
+  // Performance optimization tracking variables
+  private lastPlayerHealth: number = -1;
+  private lastPlayerSpeed: number = -1;
+  private lastRedDotCount: number = -1;
+  private lastYellowDotCount: number = -1;
+  private lastPlayerX: number = -1;
+  private lastPlayerY: number = -1;
+  private cachedClosestEnemy: any = null;
+  private lastDistanceCheck: number = 0;
+  private createdTexts: Set<Phaser.GameObjects.Text> = new Set();
+  
+  // Easy mode switching - just change this one variable
+  private readonly USE_TEST_MODE: boolean = true;
+  private readonly TEST_LEVELS: number[] = [101, 102];
+  private readonly PRODUCTION_LEVELS: number[] = [1, 2];
+  private rKeyPressed: boolean = false;
 
   constructor() {
     super({ key: 'MainScene' });
@@ -41,29 +62,52 @@ export class MainScene extends Phaser.Scene {
     // Set up the main play area
     this.add.rectangle(400, 300, 800, 600, 0x333333, 0.3);
     
+    // Add visible walls around the play area
+    this.createWalls();
+    
     // Initialize game start time
     this.gameStartTime = this.time.now;
     
-    // Initialize enemy spawn timer
-    this.lastEnemySpawnTime = this.time.now;
-    this.enemiesSpawned = 0;
+    // Initialize level complete text
+    this.levelCompleteText = null;
+    
+    // Initialize key tracking
+    this.rKeyPressed = false;
+    
+    // Set starting level based on mode
+    this.currentLevelId = this.USE_TEST_MODE ? this.TEST_LEVELS[0] : this.PRODUCTION_LEVELS[0];
     
     // Set up player
     this.player = new Player(this, 400, 300, this.gameSettings.playerHealth);
     
     // Set up enemies
     this.enemies = this.add.group();
-    this.spawnEnemies();
+    
+    // Initialize spawn manager with current level
+    const currentLevel = getLevel(this.currentLevelId);
+    if (currentLevel) {
+      this.spawnManager = new SpawnManager(this, currentLevel, this.enemies);
+      this.spawnManager.startLevel();
+    }
     
     // Set up UI
     this.setupUI();
     this.setupAdminUI();
+    
+    // Debug admin visibility
+    console.log('Admin visible after setup:', this.adminVisible);
+    console.log('Player info header visible:', this.playerInfoHeader.visible);
     
     // Set up collisions
     this.setupCollisions();
     
     // Set up keyboard shortcuts
     this.setupKeyboardShortcuts();
+    
+    // Add test key for overlap system
+    this.input.keyboard!.on('keydown-T', () => {
+      this.testOverlapSystem();
+    });
     
     // Set up cursor keys
     this.cursors = this.input.keyboard!.createCursorKeys();
@@ -73,8 +117,25 @@ export class MainScene extends Phaser.Scene {
   }
 
   update() {
+    // Always check for restart key first - completely bypass all level logic
+    const rKey = this.input.keyboard!.addKey('R');
+    if (rKey.isDown && !this.rKeyPressed) {
+      this.rKeyPressed = true;
+      console.log('R key pressed - clean restart');
+      // Force immediate restart - no level logic, no transitions
+      this.scene.restart();
+      return;
+    } else if (!rKey.isDown) {
+      this.rKeyPressed = false;
+    }
+    
+    // Only continue with normal game logic if R is not pressed
     if (this.gameState !== 'playing') {
-      return; // Paused or game over - nothing updates
+      // During transitions, update the transition countdown
+      // if (this.pauseReason === 'transition') { // Removed
+      //   this.updateLevelTransition(); // Removed
+      // }
+      return; // Paused, game over, or completed - nothing updates
     }
     
     if (this.player) {
@@ -84,44 +145,30 @@ export class MainScene extends Phaser.Scene {
     
     // Update timer
     const elapsedTime = Math.floor((this.time.now - this.gameStartTime - this.totalPauseTime) / 1000);
-    this.timerText.setText(this.formatAlignedText('Time', `${elapsedTime}s`));
+    if (this.timerText && this.timerText.active) {
+      this.timerText.setText(this.formatAlignedText('Time', `${elapsedTime}s`));
+    }
     
-    // Timer-based enemy spawning
-    this.spawnEnemiesOnTimer();
+    // Update spawn manager
+    if (this.spawnManager) {
+      this.spawnManager.update();
+    }
     
     // Update enemies
     this.enemies.children.each((enemy: any) => {
       enemy.update(this.player);
+      return true;
     });
+    
+    // Check for level completion
+    this.checkLevelCompletion();
     
     this.updateAdminUI();
   }
-  
-  private spawnEnemiesOnTimer() {
-    const currentTime = this.time.now;
-    if (currentTime - this.lastEnemySpawnTime >= this.currentLevel.enemySpawnInterval) {
-      // Spawn the full enemy count at once, respecting the spawn pattern
-      for (let i = 0; i < this.currentLevel.enemyCount; i++) {
-        const spawnPos = this.currentLevel.spawnPositions[i];
-        const enemy = new Enemy(this, spawnPos.x, spawnPos.y, this.currentLevel.enemyHealth, this.currentLevel.enemySpeed);
-        this.enemies.add(enemy);
-      }
-      
-      this.lastEnemySpawnTime = currentTime;
-      this.enemiesSpawned += this.currentLevel.enemyCount;
-    }
-  }
-
-  private spawnEnemies() {
-    // Spawn enemies based on level configuration
-    for (let i = 0; i < this.currentLevel.enemyCount; i++) {
-      const pos = this.currentLevel.spawnPositions[i];
-      const enemy = new Enemy(this, pos.x, pos.y, this.currentLevel.enemyHealth, this.currentLevel.enemySpeed);
-      this.enemies.add(enemy);
-    }
-  }
 
   private setupAdminUI() {
+    console.log('Setting up admin UI, adminVisible:', this.adminVisible);
+    
     // Player info header (bottom left, anchored)
     this.playerInfoHeader = this.add.text(20, 460, 'Player Info', {
       fontSize: '16px',
@@ -129,7 +176,8 @@ export class MainScene extends Phaser.Scene {
       stroke: '#000',
       strokeThickness: 1
     });
-    this.playerInfoHeader.setVisible(false);
+    this.playerInfoHeader.setVisible(this.adminVisible);
+    console.log('Player header visible set to:', this.adminVisible);
     
     // Player info details (bottom left, anchored)
     this.playerInfoDetails = this.add.text(20, 480, 'Health: 100\nSpeed: 0\nPos: (0,0)', {
@@ -139,46 +187,47 @@ export class MainScene extends Phaser.Scene {
       strokeThickness: 2
     }).setInteractive();
     this.playerInfoDetails.setStyle({ wordWrap: { width: 150 } });
-    this.playerInfoDetails.setVisible(false);
+    this.playerInfoDetails.setVisible(this.adminVisible);
     
-    // Enemy info header (bottom center, anchored)
-    this.enemyInfoHeader = this.add.text(200, 460, 'Enemy Info', {
+    // Enemy: Red Dot header (bottom center, anchored)
+    this.levelInfoHeader = this.add.text(200, 460, 'Enemy: Red Dot', {
       fontSize: '16px',
       color: '#ffffff',
       stroke: '#000',
       strokeThickness: 1
     });
-    this.enemyInfoHeader.setVisible(false);
+    this.levelInfoHeader.setVisible(this.adminVisible);
     
-    // Enemy info details (bottom center, anchored)
-    this.enemyInfoDetails = this.add.text(200, 480, 'Speed: 120\nCount: 4', {
-      fontSize: '12px',
-      color: '#ffff00',
-      stroke: '#000',
-      strokeThickness: 2
-    }).setInteractive();
-    this.enemyInfoDetails.setStyle({ wordWrap: { width: 150 } });
-    this.enemyInfoDetails.setVisible(false);
-    
-    // Level info header (bottom center-right, anchored)
-    this.levelInfoHeader = this.add.text(380, 460, 'Level 1', {
-      fontSize: '16px',
-      color: '#ffffff',
-      stroke: '#000',
-      strokeThickness: 1
-    });
-    this.levelInfoHeader.setVisible(false);
-    
-    // Level info details (bottom center-right, anchored)
-    this.levelInfoDetails = this.add.text(380, 480, 'Spawn Freq: 3s\nEnemies: 4\nPattern: 1', {
+    // Enemy: Red Dot details (bottom center, anchored) - static properties + count
+    this.levelInfoDetails = this.add.text(200, 480, 'Health: 30/30\nSpeed: 120\nDamage: 20\nActive: 0', {
       fontSize: '12px',
       color: '#ffff00',
       stroke: '#000',
       strokeThickness: 2
     }).setInteractive();
     this.levelInfoDetails.setStyle({ wordWrap: { width: 150 } });
-    this.levelInfoDetails.setVisible(false);
+    this.levelInfoDetails.setVisible(this.adminVisible);
     
+    // Enemy: Yellow Dot header (bottom right, anchored)
+    this.yellowDotHeader = this.add.text(380, 460, 'Enemy: Yellow Dot', {
+      fontSize: '16px',
+      color: '#ffffff',
+      stroke: '#000',
+      strokeThickness: 1
+    });
+    this.yellowDotHeader.setVisible(this.adminVisible);
+    
+    // Enemy: Yellow Dot details (bottom right, anchored) - static properties + count
+    this.yellowDotDetails = this.add.text(380, 480, 'Health: 40/40\nSpeed: 110\nDamage: 50\nActive: 0', {
+      fontSize: '12px',
+      color: '#ffff00',
+      stroke: '#000',
+      strokeThickness: 2
+    }).setInteractive();
+    this.yellowDotDetails.setStyle({ wordWrap: { width: 150 } });
+    this.yellowDotDetails.setVisible(this.adminVisible);
+    
+    console.log('Admin UI setup complete, all elements visible:', this.adminVisible);
   }
 
   private setupUI() {
@@ -219,7 +268,7 @@ export class MainScene extends Phaser.Scene {
     }).setOrigin(0, 0); // Left-aligned
     
     // Level text (top right, aligned with score and timer)
-    this.levelText = this.add.text(650, 80, this.formatAlignedText('Level', '01'), {
+    this.levelText = this.add.text(650, 80, this.formatAlignedText('Level', this.currentLevelId.toString().padStart(2, '0')), {
       fontSize: '20px',
       color: '#fff',
       stroke: '#000',
@@ -236,7 +285,7 @@ export class MainScene extends Phaser.Scene {
     });
     
     // Controls details (below header)
-    this.controlsDetails = this.add.text(20, 320, 'WASD Movement\nP Pause/Admin', {
+    this.controlsDetails = this.add.text(20, 320, 'WASD Movement\nP Pause/Resume\nTAB Toggle Admin\nR Restart', {
       fontSize: '12px',
       color: '#ffff00',
       stroke: '#000',
@@ -284,19 +333,73 @@ export class MainScene extends Phaser.Scene {
   }
 
   private onBulletHitEnemy(bullet: any, enemy: any) {
+    // Destroy the bullet
     bullet.destroy();
-    enemy.damage(this.gameSettings.bulletDamage);
     
-    if (enemy.getHealth() <= 0) {
+    // Damage the enemy
+    const bulletDamage = this.gameSettings.bulletDamage;
+    const enemyDied = enemy.takeDamage(bulletDamage);
+    
+    // If enemy died, remove it and add score
+    if (enemyDied) {
+      // Visual feedback - enemy explosion effect (expanding red ring)
+      const explosion = this.add.circle(enemy.x, enemy.y, 7, 0xff0000, 0.8);
+      this.tweens.add({
+        targets: explosion,
+        scaleX: 1.2,
+        scaleY: 1.2,
+        alpha: 0,
+        duration: 300,
+        onComplete: () => {
+          explosion.destroy();
+        }
+      });
+      
       enemy.destroy();
+      
+      // Increase score
       this.score += 10;
       this.scoreText.setText(this.formatAlignedText('Score', this.score.toString()));
     }
   }
 
   private onPlayerHitEnemy(player: any, enemy: any) {
-    // Player takes damage
-    player.damage(this.currentLevel.enemyDamage);
+    // Player takes damage from enemy
+    const enemyDamage = enemy.getDamage();
+    player.damage(enemyDamage);
+    
+    // Enemy takes damage from player collision
+    const playerCollisionDamage = player.getCollisionDamage();
+    const enemyDied = enemy.takeDamage(playerCollisionDamage);
+    
+    // Enemy slows down after hitting player
+    enemy.onPlayerCollision();
+    
+    // Immediately update health bar to reflect current damage
+    this.updateHealthBar();
+    
+    // Visual feedback - enemy explosion effect if enemy died
+    if (enemyDied) {
+      // Visual feedback - enemy explosion effect (expanding red ring)
+      const explosion = this.add.circle(enemy.x, enemy.y, 7, 0xff0000, 0.8);
+      this.tweens.add({
+        targets: explosion,
+        scaleX: 1.2,
+        scaleY: 1.2,
+        alpha: 0,
+        duration: 300,
+        onComplete: () => {
+          explosion.destroy();
+        }
+      });
+      
+      // Remove the enemy after it dies
+      enemy.destroy();
+      
+      // Increase score for enemy destruction
+      this.score += 10;
+      this.scoreText.setText(this.formatAlignedText('Score', this.score.toString()));
+    }
     
     if (player.getHealth() <= 0) {
       this.handleGameOver();
@@ -330,29 +433,86 @@ export class MainScene extends Phaser.Scene {
   }
 
   private setupKeyboardShortcuts() {
+    // Pause/Resume
+    this.input.keyboard!.on('keydown-P', () => {
+      this.togglePause();
+    });
+    
+    // Toggle admin panel
+    this.input.keyboard!.on('keydown-TAB', (event: any) => {
+      event.preventDefault(); // Prevent default TAB behavior (browser focus)
+      this.toggleAdmin();
+    });
+    
+    // Continue to next level when paused for level complete
     this.input.keyboard!.on('keydown-SPACE', () => {
-      if (this.adminVisible || this.gameState === 'gameOver') {
-        this.scene.restart();
+      if (this.gameState === 'paused' && this.pauseReason === 'levelComplete') {
+        this.continueToNextLevel();
       }
     });
-    this.input.keyboard!.on('keydown-P', () => {
-      this.togglePauseAndAdmin();
-    });
   }
-  
-  private togglePauseAndAdmin() {
-    if (this.gameState === 'playing') {
-      this.gameState = 'paused';
-      this.adminVisible = true; // Admin mode when paused
-      this.pauseStartTime = this.time.now; // Record when pause started
-    } else if (this.gameState === 'paused') {
-      this.gameState = 'playing';
-      this.adminVisible = false;
-      // Add the pause duration to total pause time
-      this.totalPauseTime += this.time.now - this.pauseStartTime;
+
+  private continueToNextLevel() {
+    const currentLevels = this.USE_TEST_MODE ? this.TEST_LEVELS : this.PRODUCTION_LEVELS;
+    const currentIndex = currentLevels.indexOf(this.currentLevelId);
+    const nextLevelId = currentIndex >= 0 && currentIndex < currentLevels.length - 1 ? currentLevels[currentIndex + 1] : null;
+    
+    if (!nextLevelId) return;
+    
+    console.log('Continuing to next level');
+    
+    // Clear all text objects
+    this.clearAllTextObjects();
+    
+    // Reset for next level
+    this.currentLevelId = nextLevelId;
+    this.score = 0;
+    
+    // Only update UI text if it still exists (wasn't destroyed)
+    if (this.scoreText && this.scoreText.active) {
+      this.scoreText.setText(this.formatAlignedText('Score', '0'));
+    }
+    if (this.levelText && this.levelText.active) {
+      this.levelText.setText(this.formatAlignedText('Level', this.currentLevelId.toString().padStart(2, '0')));
     }
     
-    if (this.gameState === 'paused') {
+    // Reset player health
+    if (this.player) {
+      this.player.resetHealth(this.gameSettings.playerHealth);
+      this.updateHealthBar();
+    }
+    
+    // Clear all enemies
+    this.enemies.clear(true, true);
+    
+    // Initialize new level
+    const newLevel = getLevel(this.currentLevelId);
+    if (newLevel && this.spawnManager) {
+      this.spawnManager.reset(newLevel);
+      this.spawnManager.startLevel();
+    }
+    
+    // Resume the game
+    this.resumeGame();
+    
+    // Reset game start time for new level
+    this.gameStartTime = this.time.now;
+  }
+  
+  private togglePause() {
+    if (this.gameState === 'playing') {
+      this.pauseGame('user');
+    } else if (this.gameState === 'paused') {
+      this.resumeGame();
+    }
+  }
+
+  private pauseGame(reason: 'user' | 'levelComplete') {
+    if (this.gameState === 'playing') {
+      this.gameState = 'paused';
+      this.pauseReason = reason;
+      this.pauseStartTime = this.time.now;
+      
       // Stop player movement when pausing
       if (this.player) {
         this.player.setVelocity(0, 0);
@@ -362,63 +522,163 @@ export class MainScene extends Phaser.Scene {
         if (enemy.active) {
           enemy.setVelocity(0, 0);
         }
+        return true;
       });
-      this.pauseText.setVisible(true);
-    } else if (this.gameState === 'playing') {
+      
+      // Show pause text only for user pauses, not level complete
+      if (reason === 'user') {
+        this.pauseText.setVisible(true);
+      }
+      
+      this.updateControls();
+    }
+  }
+
+  private resumeGame() {
+    if (this.gameState === 'paused') {
+      this.gameState = 'playing';
+      this.pauseReason = null;
+      // Add the pause duration to total pause time
+      this.totalPauseTime += this.time.now - this.pauseStartTime;
+      
       // Remove PAUSED text and restore timer
       const elapsedTime = Math.floor((this.time.now - this.gameStartTime - this.totalPauseTime) / 1000);
       this.timerText.setText(this.formatAlignedText('Time', `${elapsedTime}s`));
       this.pauseText.setVisible(false);
+      
+      this.updateControls();
     }
+  }
+
+  private toggleAdmin() {
+    console.log('Toggle admin called, current state:', this.adminVisible);
+    this.adminVisible = !this.adminVisible;
+    console.log('New admin state:', this.adminVisible);
     
     // Update admin UI visibility
     this.playerInfoHeader.setVisible(this.adminVisible);
     this.playerInfoDetails.setVisible(this.adminVisible);
-    this.enemyInfoHeader.setVisible(this.adminVisible);
-    this.enemyInfoDetails.setVisible(this.adminVisible);
     this.levelInfoHeader.setVisible(this.adminVisible);
     this.levelInfoDetails.setVisible(this.adminVisible);
+    this.yellowDotHeader.setVisible(this.adminVisible);
+    this.yellowDotDetails.setVisible(this.adminVisible);
+    
+    // Force update the admin UI when showing
+    if (this.adminVisible) {
+      this.updateAdminUI();
+    }
     
     this.updateControls();
   }
 
   private updateAdminUI() {
-    // Update player info
+    // Update player info - only when values change
     if (this.player) {
+      const playerHealth = this.player.getHealth();
       const playerSpeed = Math.sqrt(
         Math.pow(this.player.body!.velocity.x, 2) + 
         Math.pow(this.player.body!.velocity.y, 2)
       );
-      const playerHealth = this.player.getHealth();
-      const fireRate = Math.round(1000 / this.gameSettings.shootInterval * 10) / 10; // shots per second
-      const bulletDamage = this.gameSettings.bulletDamage;
-      const enemiesSpawned = this.enemiesSpawned;
-      const totalEnemies = this.currentLevel.enemyCount;
-      this.playerInfoDetails.setText(
-        `Health: ${playerHealth}\nSpeed: ${Math.round(playerSpeed)}\nFire Rate: ${fireRate}/s\nBullet Dmg: ${bulletDamage}\nPos: (${Math.round(this.player.x)}, ${Math.round(this.player.y)})`
-      );
-      // Update segmented health bar
-      const segmentsToShow = Math.ceil(playerHealth / 5);
-      for (let i = 0; i < this.healthSegments.length; i++) {
-        this.healthSegments[i].setFillStyle(i < segmentsToShow ? 0x00ff00 : 0x444444);
+      const playerX = Math.round(this.player.x);
+      const playerY = Math.round(this.player.y);
+      
+      // Only update if any value changed
+      if (playerHealth !== this.lastPlayerHealth || 
+          Math.round(playerSpeed) !== this.lastPlayerSpeed ||
+          playerX !== this.lastPlayerX ||
+          playerY !== this.lastPlayerY) {
+        
+        const fireRate = Math.round(1000 / this.gameSettings.shootInterval * 10) / 10; // shots per second
+        const bulletDamage = this.gameSettings.bulletDamage;
+        const collisionDamage = this.player.getCollisionDamage();
+        const isInvulnerable = this.player.isInvulnerableToDamage();
+        
+        this.playerInfoDetails.setText(
+          `Health: ${playerHealth}\nSpeed: ${Math.round(playerSpeed)}\nFire Rate: ${fireRate}/s\nBullet Dmg: ${bulletDamage}\nCollision Damage: ${collisionDamage}\nInvulnerable: ${isInvulnerable ? 'Yes' : 'No'}\nPos: (${playerX}, ${playerY})`
+        );
+        
+        // Update segmented health bar
+        this.updateHealthBar();
+        
+        // Cache the values
+        this.lastPlayerHealth = playerHealth;
+        this.lastPlayerSpeed = Math.round(playerSpeed);
+        this.lastPlayerX = playerX;
+        this.lastPlayerY = playerY;
       }
     }
-    // Update enemy info
-    const enemyCount = this.enemies.countActive();
-    const enemySpeed = this.currentLevel.enemySpeed;
-    const enemyHealth = this.currentLevel.enemyHealth;
-    const enemyDamage = this.currentLevel.enemyDamage;
-    this.enemyInfoDetails.setText(
-      `Speed: ${enemySpeed}\nHealth: ${enemyHealth}\nDamage: ${enemyDamage}\nCount: ${enemyCount}`
-    );
     
-    // Update level info
-    const spawnFreqSeconds = this.currentLevel.enemySpawnInterval / 1000;
-    const enemiesSpawned = this.enemiesSpawned;
-    const totalEnemies = this.currentLevel.enemyCount;
-    this.levelInfoDetails.setText(
-      `Spawn Freq: ${spawnFreqSeconds}s\nSpawned: ${enemiesSpawned}/${totalEnemies}\nPattern: ${this.currentLevel.spawnPattern}`
-    );
+    // Update Enemy: Red Dot info - only when count changes
+    if (this.spawnManager) {
+      const progress = this.spawnManager.getSpawnProgress();
+      
+      // Debug: Show current level
+      console.log(`🎮 Current Level: ${this.currentLevelId}`);
+      
+      // Count Red Dots
+      const redDotCount = this.enemies.getChildren().filter((enemy: any) => 
+        enemy.active && enemy.getEnemyType() === 'redDot'
+      ).length;
+      
+      // Count Yellow Dots
+      const yellowDotCount = this.enemies.getChildren().filter((enemy: any) => 
+        enemy.active && enemy.getEnemyType() === 'yellowDot'
+      ).length;
+      
+      // Debug logging
+      if (redDotCount > 0 || yellowDotCount > 0) {
+        console.log(`🔍 Active enemies - Red Dots: ${redDotCount}, Yellow Dots: ${yellowDotCount}`);
+        this.enemies.getChildren().forEach((enemy: any, index: number) => {
+          if (enemy.active) {
+            console.log(`  Enemy ${index}: type=${enemy.getEnemyType()}, active=${enemy.active}`);
+          }
+        });
+      }
+      
+      // Only update if counts changed
+      if (redDotCount !== this.lastRedDotCount) {
+        this.levelInfoDetails.setText(
+          `Health: 30/30\nSpeed: 120\nDamage: 20\nActive: ${redDotCount}`
+        );
+        this.lastRedDotCount = redDotCount;
+      }
+      
+      if (yellowDotCount !== this.lastYellowDotCount) {
+        this.yellowDotDetails.setText(
+          `Health: 40/40\nSpeed: 110\nDamage: 50\nActive: ${yellowDotCount}`
+        );
+        this.lastYellowDotCount = yellowDotCount;
+      }
+    }
+  }
+
+  // Update health bar segments based on current player health
+  private updateHealthBar() {
+    if (this.player) {
+      const playerHealth = this.player.getHealth();
+      const segmentsToShow = Math.ceil(playerHealth / 5);
+      const maxHealth = this.gameSettings.playerHealth;
+      const healthPercentage = playerHealth / maxHealth;
+      
+      for (let i = 0; i < this.healthSegments.length; i++) {
+        if (i < segmentsToShow) {
+          // Color based on health percentage
+          if (healthPercentage <= 0.25) {
+            // Critical health - red
+            this.healthSegments[i].setFillStyle(0xff0000);
+          } else if (healthPercentage <= 0.5) {
+            // Low health - orange
+            this.healthSegments[i].setFillStyle(0xff8800);
+          } else {
+            // Good health - green
+            this.healthSegments[i].setFillStyle(0x00ff00);
+          }
+        } else {
+          // Empty segments - gray
+          this.healthSegments[i].setFillStyle(0x444444);
+        }
+      }
+    }
   }
   
   private formatAlignedText(label: string, value: string): string {
@@ -428,11 +688,7 @@ export class MainScene extends Phaser.Scene {
   }
 
   private updateControls() {
-    if (this.adminVisible) {
-      this.controlsDetails.setText('P Resume\nSPACE Restart');
-    } else {
-      this.controlsDetails.setText('WASD Movement\nP Pause/Admin');
-    }
+    this.controlsDetails.setText('WASD Movement\nP Pause/Resume\nTAB Toggle Admin\nR Restart');
   }
 
   private handleGameOver() {
@@ -447,17 +703,25 @@ export class MainScene extends Phaser.Scene {
       this.player = null as any;
     }
     
-    this.add.text(400, 250, 'GAME OVER', {
+    // Create tracked text objects
+    this.createGameText(400, 250, 'GAME OVER', {
       fontSize: '64px',
       color: '#ff0000',
       stroke: '#000',
       strokeThickness: 6
     }).setOrigin(0.5);
 
-    this.add.text(400, 350, 'Press SPACE to restart', {
+    this.createGameText(400, 350, 'Press R to restart', {
       fontSize: '24px',
       color: '#fff'
     }).setOrigin(0.5);
+  }
+
+  // Helper method to track created text objects
+  private createGameText(x: number, y: number, text: string, style: any): Phaser.GameObjects.Text {
+    const textObj = this.add.text(x, y, text, style);
+    this.createdTexts.add(textObj);
+    return textObj;
   }
 
   private autoShoot() {
@@ -472,6 +736,13 @@ export class MainScene extends Phaser.Scene {
   }
   
   private findClosestEnemy(): any {
+    const now = this.time.now;
+    
+    // Cache results for 100ms to avoid expensive calculations every frame
+    if (now - this.lastDistanceCheck < 100 && this.cachedClosestEnemy) {
+      return this.cachedClosestEnemy;
+    }
+    
     let closestEnemy = null;
     let closestDistance = Infinity;
     
@@ -488,6 +759,10 @@ export class MainScene extends Phaser.Scene {
       }
     });
     
+    // Cache the result
+    this.cachedClosestEnemy = closestEnemy;
+    this.lastDistanceCheck = now;
+    
     return closestEnemy;
   }
 
@@ -498,9 +773,8 @@ export class MainScene extends Phaser.Scene {
     this.totalPauseTime = 0;
     this.pauseStartTime = 0;
     
-    // Reset enemy spawn timer
-    this.lastEnemySpawnTime = this.time.now;
-    this.enemiesSpawned = 0;
+    // Reset performance tracking variables
+    this.resetPerformanceTracking();
     
     // Reset player health to game settings
     if (this.player) {
@@ -543,6 +817,220 @@ export class MainScene extends Phaser.Scene {
       if (enemy.active) {
         enemy.setVelocity(0, 0);
       }
+      return true;
     });
+  }
+
+  // Create visible walls around the play area
+  private createWalls() {
+    const wallThickness = 6;
+    const wallColor = 0x888888;
+    
+    // Top wall
+    this.add.rectangle(400, wallThickness/2, 800, wallThickness, wallColor);
+    
+    // Bottom wall
+    this.add.rectangle(400, 600 - wallThickness/2, 800, wallThickness, wallColor);
+    
+    // Left wall
+    this.add.rectangle(wallThickness/2, 300, wallThickness, 600, wallColor);
+    
+    // Right wall
+    this.add.rectangle(800 - wallThickness/2, 300, wallThickness, 600, wallColor);
+  }
+
+  // Test function for overlap prevention system
+  private testOverlapSystem() {
+    console.log('🧪 Testing overlap prevention system...');
+    
+    // Import the spawn utilities
+    import('../utils/SpawnUtils').then(({ spawnUtils }) => {
+      // Mock enemies
+      const enemies = [
+        {x: 100, y: 100},
+        {x: 200, y: 200},
+        {x: 300, y: 300}
+      ];
+      
+      // Test overlap detection
+      const hasOverlap = spawnUtils.hasOverlap(150, 150, enemies, 50);
+      console.log('Overlap test (150,150):', hasOverlap ? '✅ Detected' : '❌ Not detected');
+      
+      // Test valid position finding
+      const validPos = spawnUtils.findValidPosition(200, 200, enemies, 50);
+      console.log('Valid position found:', validPos);
+      
+      // Test circle pattern
+      const circlePositions = spawnUtils.generateCirclePositions(400, 300, 6, enemies, 40);
+      console.log('Circle pattern positions:', circlePositions);
+      
+      console.log('✨ Overlap prevention system test completed!');
+    });
+  }
+
+  private checkLevelCompletion() {
+    // Only check if we're playing and haven't already completed the level
+    if (this.gameState !== 'playing') return;
+    
+    const currentLevel = getLevel(this.currentLevelId);
+    if (!currentLevel) return;
+    
+    // Don't check completion until spawn manager has started and at least one group has spawned
+    if (!this.spawnManager || this.spawnManager.getSpawnProgress().spawnedGroups === 0) return;
+    
+    const activeEnemies = this.enemies.getChildren().filter((enemy: any) => enemy.active).length;
+    const scoreReached = this.score >= currentLevel.scoreToComplete;
+    
+    // Level is complete if all enemies are defeated and score is reached
+    if (activeEnemies === 0 && scoreReached) {
+      this.handleLevelComplete();
+    }
+  }
+
+  private handleLevelComplete() {
+    // Only handle completion once - prevent multiple calls
+    if (this.gameState !== 'playing' || this.levelCompleteText) {
+      console.log('Level complete already handled or game not in playing state, skipping');
+      return;
+    }
+    
+    console.log(`Level ${this.currentLevelId} completed!`);
+    
+    // Stop player movement immediately
+    if (this.player) {
+      this.player.setVelocity(0, 0);
+    }
+    
+    // Show level complete message using tracked creation
+    this.levelCompleteText = this.createGameText(400, 250, 'LEVEL COMPLETE!', {
+      fontSize: '48px',
+      color: '#00ff00',
+      stroke: '#000',
+      strokeThickness: 4
+    }).setOrigin(0.5);
+    
+    console.log('Level complete text created');
+    
+    // Stop all enemies and spawning
+    this.stopAllEnemies();
+    if (this.spawnManager) {
+      this.spawnManager.stopLevel();
+    }
+    
+    // Check if there's a next level
+    const currentLevels = this.USE_TEST_MODE ? this.TEST_LEVELS : this.PRODUCTION_LEVELS;
+    const currentIndex = currentLevels.indexOf(this.currentLevelId);
+    const nextLevelId = currentIndex >= 0 && currentIndex < currentLevels.length - 1 ? currentLevels[currentIndex + 1] : null;
+    
+    if (nextLevelId) {
+      // Show next level info
+      this.createGameText(400, 350, `Next: Level ${nextLevelId}`, {
+        fontSize: '24px',
+        color: '#ffff00',
+        stroke: '#000',
+        strokeThickness: 2
+      }).setOrigin(0.5);
+      
+      this.createGameText(400, 380, 'Press SPACE to continue', {
+        fontSize: '20px',
+        color: '#fff'
+      }).setOrigin(0.5);
+      
+      // Pause game with hidden pause text
+      this.pauseGame('levelComplete');
+    } else {
+      // Game completed - show victory message
+      console.log('Game completed - showing victory message');
+      
+      // Set game state to completed to pause all gameplay
+      this.gameState = 'completed';
+      
+      // Remove level complete text immediately
+      if (this.levelCompleteText) {
+        this.levelCompleteText.setVisible(false);
+        this.children.remove(this.levelCompleteText);
+        this.levelCompleteText.destroy();
+        this.levelCompleteText = null;
+      }
+      
+      this.createGameText(400, 250, 'GAME COMPLETED!', {
+        fontSize: '32px',
+        color: '#ffff00',
+        stroke: '#000',
+        strokeThickness: 4
+      }).setOrigin(0.5);
+      
+      this.createGameText(400, 300, 'Press R to restart', {
+        fontSize: '24px',
+        color: '#fff'
+      }).setOrigin(0.5);
+    }
+  }
+
+  // NEW METHOD: Clean all text objects from scene
+  private clearAllTextObjects() {
+    console.log('Clearing all text objects from scene');
+    
+    // Get all text objects in the scene
+    const allTexts = this.children.list.filter(child => child.type === 'Text');
+    console.log(`Found ${allTexts.length} text objects to clear`);
+    
+    // Destroy all text objects except UI elements we want to keep
+    allTexts.forEach((textObj: any) => {
+      const text = textObj as Phaser.GameObjects.Text;
+      const textContent = text.text;
+      
+      // Skip UI elements we want to preserve - check by reference and content
+      if (text === this.scoreText || 
+          text === this.timerText ||
+          text === this.levelText ||
+          text === this.pauseText ||
+          text === this.playerInfoHeader ||
+          text === this.playerInfoDetails ||
+          text === this.levelInfoHeader ||
+          text === this.levelInfoDetails ||
+          text === this.yellowDotHeader ||
+          text === this.yellowDotDetails ||
+          text === this.controlsText ||
+          text === this.controlsDetails ||
+          textContent.includes('Player Info') ||
+          textContent.includes('Enemy: Red Dot') ||
+          textContent.includes('Enemy: Yellow Dot') ||
+          textContent.includes('WASD Movement') ||
+          textContent.includes('P Pause/Resume') ||
+          textContent.includes('TAB Toggle Admin') ||
+          textContent.includes('R Restart') ||
+          textContent === 'PAUSED' ||
+          textContent.startsWith('Score:') ||
+          textContent.startsWith('Time:') ||
+          textContent.startsWith('Level:')) {
+        console.log(`Preserving UI text: "${textContent}"`);
+        return;
+      }
+      
+      // Destroy all other text objects
+      console.log(`Destroying text: "${textContent}"`);
+      text.destroy();
+    });
+    
+    // Clean up tracked text objects
+    this.createdTexts.clear();
+    
+    // Reset our text references
+    this.levelCompleteText = null;
+    
+    console.log('All text objects cleared');
+  }
+
+  // Reset performance tracking variables
+  private resetPerformanceTracking() {
+    this.lastPlayerHealth = -1;
+    this.lastPlayerSpeed = -1;
+    this.lastRedDotCount = -1;
+    this.lastYellowDotCount = -1;
+    this.lastPlayerX = -1;
+    this.lastPlayerY = -1;
+    this.cachedClosestEnemy = null;
+    this.lastDistanceCheck = 0;
   }
 } 

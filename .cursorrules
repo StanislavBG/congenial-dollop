@@ -1,0 +1,259 @@
+# Cursor Rules for Physics Games - Best Practices
+
+## 🚨 CRITICAL: Update Loop Safety
+- NEVER do expensive operations in update() without guards
+- ALWAYS use tracking variables to prevent repeated execution
+- Update loops run 60 times per second - anything here gets called constantly
+
+```typescript
+// BAD - runs every frame
+update() {
+  if (condition) {
+    createExpensiveObject();
+    doHeavyComputation();
+  }
+}
+
+// GOOD - with proper tracking
+private hasDoneThing = false;
+update() {
+  if (condition && !this.hasDoneThing) {
+    createExpensiveObject();
+    doHeavyComputation();
+    this.hasDoneThing = true;
+  }
+}
+```
+
+## 🎮 Game State Management
+- ALWAYS use explicit state machines
+- NEVER mix state logic - keep transitions clean
+- Use enum for game states: PLAYING, PAUSED, TRANSITION, GAME_OVER
+
+```typescript
+enum GameState {
+  PLAYING = 'playing',
+  PAUSED = 'paused', 
+  TRANSITION = 'transition',
+  GAME_OVER = 'gameOver'
+}
+
+private transitionToState(newState: GameState) {
+  this.cleanupCurrentState();
+  this.initializeNewState(newState);
+  this.currentState = newState;
+}
+```
+
+## 🧹 Object Lifecycle Management
+- ALWAYS track object creation/destruction
+- Use Sets to track created objects
+- Clean up objects when transitioning states
+
+```typescript
+private createdObjects: Set<GameObject> = new Set();
+
+private createObject() {
+  const obj = this.add.object();
+  this.createdObjects.add(obj);
+  return obj;
+}
+
+private cleanupObjects() {
+  this.createdObjects.forEach(obj => obj.destroy());
+  this.createdObjects.clear();
+}
+```
+
+## ⚡ Performance Best Practices
+- Use object pooling for frequently created/destroyed objects
+- Cache expensive calculations
+- Avoid creating objects in update loops
+
+```typescript
+// Object pooling
+private bulletPool: Bullet[] = [];
+
+private getBullet(): Bullet {
+  return this.bulletPool.pop() || new Bullet();
+}
+
+private recycleBullet(bullet: Bullet) {
+  this.bulletPool.push(bullet);
+}
+
+// Cache expensive calculations
+private cachedDistance: number = 0;
+private lastDistanceCheck: number = 0;
+
+private getDistanceToPlayer(enemy: Enemy): number {
+  const now = this.time.now;
+  if (now - this.lastDistanceCheck > 100) { // Cache for 100ms
+    this.cachedDistance = Phaser.Math.Distance.Between(enemy.x, enemy.y, this.player.x, this.player.y);
+    this.lastDistanceCheck = now;
+  }
+  return this.cachedDistance;
+}
+```
+
+## 🎯 Physics Game Specific Rules
+- ALWAYS validate physics bodies before operations
+- Use velocity instead of position for smooth movement
+- Handle collision groups properly
+
+```typescript
+// Validate physics bodies
+private safePhysicsOperation(body: Phaser.Physics.Arcade.Body) {
+  if (body && body.gameObject && body.gameObject.active) {
+    // Safe to operate
+  }
+}
+
+// Use velocity for movement
+// BAD: enemy.x += speed;
+// GOOD: enemy.setVelocity(speed, 0);
+
+// Proper collision setup
+private setupCollisions() {
+  this.physics.add.collider(this.player, this.enemies, this.onPlayerHitEnemy);
+  this.physics.add.overlap(this.bullets, this.enemies, this.onBulletHitEnemy);
+}
+```
+
+## 🔄 Event-Driven Architecture
+- Use events instead of polling
+- Listen for events instead of checking every frame
+
+```typescript
+// BAD - checking every frame
+update() {
+  if (this.enemies.countActive() === 0) {
+    this.handleLevelComplete();
+  }
+}
+
+// GOOD - event-driven
+private onEnemyDestroyed() {
+  if (this.enemies.countActive() === 0) {
+    this.events.emit('levelComplete');
+  }
+}
+
+// Listen for events
+create() {
+  this.events.on('levelComplete', this.handleLevelComplete, this);
+}
+```
+
+## 📊 Memory Management
+- ALWAYS clean up event listeners
+- Use weak references for callbacks
+- Clean up objects on scene destroy
+
+```typescript
+destroy() {
+  this.events.off('levelComplete', this.handleLevelComplete, this);
+  this.cleanupObjects();
+  super.destroy();
+}
+
+// Use bound methods for callbacks
+private boundMethod = this.method.bind(this);
+this.events.on('event', this.boundMethod);
+```
+
+## 🎨 UI Management
+- Separate UI from game logic
+- Use text objects efficiently
+- Only update UI when values change
+
+```typescript
+// Separate UI manager
+private uiManager = new UIManager(this);
+
+// Efficient text updates
+private updateUIText() {
+  const newText = this.getScoreText();
+  if (this.scoreText.text !== newText) {
+    this.scoreText.setText(newText);
+  }
+}
+```
+
+## 🔧 Debugging & Logging
+- Use structured logging
+- Add performance monitoring
+- Log object lifecycle events
+
+```typescript
+// Structured logging
+private logGameEvent(event: string, data?: any) {
+  console.log(`[${this.time.now}] ${event}`, data);
+}
+
+// Performance monitoring
+private frameCount = 0;
+private lastFPS = 0;
+
+update() {
+  this.frameCount++;
+  if (this.frameCount % 60 === 0) {
+    this.lastFPS = this.game.loop.actualFps;
+    console.log(`FPS: ${this.lastFPS}`);
+  }
+}
+```
+
+## 🎯 Level Management
+- Use state machines for level transitions
+- Clean up between levels
+- Reset all tracking variables
+
+```typescript
+private levelState: 'loading' | 'playing' | 'complete' | 'transition' = 'loading';
+
+private transitionLevel() {
+  this.levelState = 'transition';
+  this.cleanupCurrentLevel();
+  this.loadNextLevel();
+  this.levelState = 'playing';
+}
+```
+
+## 🚫 Anti-Patterns to Avoid
+- DON'T create objects in update loops
+- DON'T use global variables for game state
+- DON'T mix UI and game logic
+- DON'T ignore physics body validation
+- DON'T forget to clean up event listeners
+- DON'T use setTimeout/setInterval in games (use game.time.delayedCall)
+- DON'T access scene properties without null checks
+- DON'T call expensive methods repeatedly without caching
+- DON'T create multiple objects for the same purpose
+
+## ✅ Code Review Checklist
+- [ ] No expensive operations in update loops without guards
+- [ ] All objects properly tracked and cleaned up
+- [ ] Event listeners removed on destroy
+- [ ] Physics bodies validated before use
+- [ ] State transitions are explicit and clean
+- [ ] Performance-critical code is optimized
+- [ ] Memory leaks prevented
+- [ ] Error handling in place
+- [ ] No repeated object creation without tracking
+- [ ] UI updates are efficient
+
+## 🎮 Phaser.js Specific Rules
+- Use scene.time.delayedCall instead of setTimeout
+- Validate game objects before operations
+- Use scene.children.list to find objects
+- Properly destroy text objects with text.destroy()
+- Use scene.restart() for clean game restarts
+- Handle scene lifecycle properly (create, update, destroy)
+
+## 🔍 Debugging Patterns
+- Add console.log for object creation/destruction
+- Track state changes with logging
+- Monitor performance with FPS tracking
+- Use browser dev tools to check for memory leaks
+- Validate object references before operations 

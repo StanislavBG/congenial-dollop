@@ -6,6 +6,9 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   private lastShootTime: number = 0;
   private shootCooldown: number = 200; // milliseconds
   private wasdKeys!: { W: Phaser.Input.Keyboard.Key, A: Phaser.Input.Keyboard.Key, S: Phaser.Input.Keyboard.Key, D: Phaser.Input.Keyboard.Key };
+  private isInvulnerable: boolean = false;
+  private invulnerabilityEndTime: number = 0;
+  private collisionDamage: number = 15; // Damage player does to enemies on collision
 
   constructor(scene: Phaser.Scene, x: number, y: number, health: number = 100) {
     super(scene, x, y, 'player');
@@ -46,6 +49,12 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   }
 
   update(cursors: Phaser.Types.Input.Keyboard.CursorKeys) {
+    // Check invulnerability
+    if (this.isInvulnerable && this.scene.time.now > this.invulnerabilityEndTime) {
+      this.isInvulnerable = false;
+      this.clearTint();
+    }
+    
     // Handle keyboard movement
     this.setVelocity(0);
     
@@ -64,11 +73,27 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     // Keep player within main area bounds (800x600)
     // X: 0 to 800
     // Y: 0 to 600
-    if (this.x < 0 || this.x > 800) {
-      this.setVelocityX(-this.body!.velocity.x);
+    if (this.x < 10) {
+      this.x = 10;
+      this.setVelocityX(0);
+    } else if (this.x > 790) {
+      this.x = 790;
+      this.setVelocityX(0);
     }
-    if (this.y < 0 || this.y > 600) {
-      this.setVelocityY(-this.body!.velocity.y);
+    
+    if (this.y < 10) {
+      this.y = 10;
+      this.setVelocityY(0);
+    } else if (this.y > 590) {
+      this.y = 590;
+      this.setVelocityY(0);
+    }
+    
+    // Additional safety check - if somehow outside bounds, force back in
+    if (this.x < 0 || this.x > 800 || this.y < 0 || this.y > 600) {
+      this.x = Math.max(10, Math.min(790, this.x));
+      this.y = Math.max(10, Math.min(590, this.y));
+      this.setVelocity(0, 0);
     }
   }
 
@@ -122,12 +147,39 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   }
 
   damage(damageAmount: number = 20) {
+    if (this.isInvulnerable) {
+      return; // Don't take damage if invulnerable
+    }
+    
     this.health -= damageAmount;
-    // Flash red when damaged
-    this.setTint(0xff0000);
-    this.scene.time.delayedCall(200, () => {
-      this.clearTint();
-    });
+    
+    // Start invulnerability frames (0.2 seconds)
+    this.isInvulnerable = true;
+    this.invulnerabilityEndTime = this.scene.time.now + 200;
+    
+    // Start blinking effect
+    this.startBlinking();
+  }
+
+  private startBlinking() {
+    let blinkCount = 0;
+    const maxBlinks = 4; // 4 blinks over 0.2 seconds
+    
+    const blinkInterval = setInterval(() => {
+      if (blinkCount >= maxBlinks || !this.isInvulnerable) {
+        clearInterval(blinkInterval);
+        this.clearTint();
+        return;
+      }
+      
+      this.setTint(blinkCount % 2 === 0 ? 0xffffff : 0x00ff00);
+      blinkCount++;
+    }, 50); // Blink every 50ms
+  }
+
+  // Deal damage to enemy on collision
+  dealCollisionDamage(enemy: any) {
+    return this.collisionDamage;
   }
 
   getHealth(): number {
@@ -136,6 +188,14 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   
   resetHealth(health: number) {
     this.health = health;
+  }
+
+  isInvulnerableToDamage(): boolean {
+    return this.isInvulnerable;
+  }
+
+  getCollisionDamage(): number {
+    return this.collisionDamage;
   }
 }
 
