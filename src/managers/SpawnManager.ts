@@ -125,60 +125,68 @@ export class SpawnManager {
    * Spawn a specific enemy group
    */
   private spawnGroup(group: EnemyGroup, groupIndex: number) {
-    // Get epicenter coordinates
-    const epicenter = this.getEpicenterCoordinates(group.epicenterStrategy);
-    
-    console.log(`🎯 Spawning group ${groupIndex + 1}: ${group.enemyCount} ${group.enemyType} enemies at epicenter (${epicenter.x}, ${epicenter.y})`);
-    
-    // Get enemy type configuration
-    const enemyType = getEnemyType(group.enemyType);
-    if (!enemyType) {
-      console.error(`❌ Unknown enemy type: ${group.enemyType}`);
-      return;
-    }
-
-    // Get spawn pattern
-    const pattern = getSpawnPattern(group.spawnPattern);
-    if (!pattern) {
-      console.error(`❌ Unknown spawn pattern: ${group.spawnPattern}`);
-      return;
-    }
-
-    // Get existing enemies for overlap prevention
-    const existingEnemies = this.enemies.getChildren() as Enemy[];
-
-    // Generate spawn positions using the pattern around the epicenter
-    const spawnPositions = pattern.positions(
-      epicenter.x,
-      epicenter.y,
-      group.enemyCount,
-      existingEnemies,
-      group.minDistance
-    );
-
-    // Spawn enemies at the calculated positions
-    spawnPositions.forEach((position, index) => {
-      if (index < group.enemyCount) {
-        const enemy = new Enemy(
-          this.scene,
-          position.x,
-          position.y,
-          enemyType.health,
-          enemyType.speed,
-          enemyType.damage,
-          group.enemyType,
-          enemyType.color
-        );
-        
-        // Apply enemy type specific properties
-        enemy.setScale(enemyType.scale);
-        
-        // Add to enemy group
-        this.enemies.add(enemy);
-        
-        console.log(`✅ Spawned ${enemyType.name} at (${Math.round(position.x)}, ${Math.round(position.y)})`);
+    try {
+      // Get epicenter coordinates
+      const epicenter = this.getEpicenterCoordinates(group.epicenterStrategy);
+      
+      console.log(`🎯 Spawning group ${groupIndex + 1}: ${group.enemyCount} ${group.enemyType} enemies at epicenter (${epicenter.x}, ${epicenter.y})`);
+      
+      // Get enemy type configuration
+      const enemyType = getEnemyType(group.enemyType);
+      if (!enemyType) {
+        console.error(`❌ Unknown enemy type: ${group.enemyType}`);
+        return;
       }
-    });
+
+      // Get spawn pattern
+      const pattern = getSpawnPattern(group.spawnPattern);
+      if (!pattern) {
+        console.error(`❌ Unknown spawn pattern: ${group.spawnPattern}`);
+        return;
+      }
+
+      // Get existing enemies for overlap prevention
+      const existingEnemies = this.enemies.getChildren() as Enemy[];
+
+      // Generate spawn positions using the pattern around the epicenter
+      const spawnPositions = pattern.positions(
+        epicenter.x,
+        epicenter.y,
+        group.enemyCount,
+        existingEnemies,
+        group.minDistance
+      );
+
+      // Spawn enemies at the calculated positions
+      spawnPositions.forEach((position, index) => {
+        if (index < group.enemyCount) {
+          try {
+            const enemy = new Enemy(
+              this.scene,
+              position.x,
+              position.y,
+              enemyType.health,
+              enemyType.speed,
+              enemyType.damage,
+              group.enemyType,
+              enemyType.color
+            );
+            
+            // Apply enemy type specific properties
+            enemy.setScale(enemyType.scale);
+            
+            // Add to enemy group
+            this.enemies.add(enemy);
+            
+            console.log(`✅ Spawned ${enemyType.name} at (${Math.round(position.x)}, ${Math.round(position.y)})`);
+          } catch (error) {
+            console.error(`❌ Error spawning enemy ${index}:`, error);
+          }
+        }
+      });
+    } catch (error) {
+      console.error(`❌ Error spawning group ${groupIndex + 1}:`, error);
+    }
   }
 
   /**

@@ -37,12 +37,22 @@ export interface EnemyGroup {
 }
 
 /**
+ * Golden Apple definition
+ */
+export interface GoldenAppleSpawn {
+  x: number;
+  y: number;
+  healthBonus: number;
+}
+
+/**
  * Level definition
  */
 export interface Level {
   id: number;
   name: string;
   groups: EnemyGroup[];
+  goldenApples?: GoldenAppleSpawn[];
   scoreToComplete: number;
 }
 

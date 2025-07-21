@@ -2,8 +2,6 @@ import Phaser from 'phaser';
 import { MainScene } from './scenes/MainScene';
 
 export class Game {
-  private game: Phaser.Game;
-
   constructor() {
     const config: Phaser.Types.Core.GameConfig = {
       type: Phaser.AUTO,
@@ -25,6 +23,6 @@ export class Game {
       }
     };
 
-    this.game = new Phaser.Game(config);
+    new Phaser.Game(config);
   }
 } 

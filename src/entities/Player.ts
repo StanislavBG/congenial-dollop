@@ -49,6 +49,11 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   }
 
   update(cursors: Phaser.Types.Input.Keyboard.CursorKeys) {
+    // Safety check: ensure we have a valid scene and body
+    if (!this.scene || !this.body) {
+      return;
+    }
+    
     // Check invulnerability
     if (this.isInvulnerable && this.scene.time.now > this.invulnerabilityEndTime) {
       this.isInvulnerable = false;
@@ -97,30 +102,12 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     }
   }
 
-  private shoot() {
-    const currentTime = Date.now();
-    if (currentTime - this.lastShootTime < this.shootCooldown) {
-      return;
-    }
-    
-    this.lastShootTime = currentTime;
-    
-    // Create bullet
-    const bullet = new Bullet(this.scene, this.x, this.y);
-    this.bullets.add(bullet);
-    
-    // Determine bullet direction - shoot towards mouse cursor
-    const mouse = this.scene.input.activePointer;
-    let targetPos = { x: this.x, y: this.y - 100 }; // Default: shoot up
-    
-    if (mouse && (mouse.x !== 0 || mouse.y !== 0)) {
-      targetPos = { x: mouse.x, y: mouse.y };
-    }
-    
-    this.shootAt(targetPos.x, targetPos.y, bullet);
-  }
-  
   shootAt(targetX: number, targetY: number, bullet?: Bullet) {
+    // Safety check: ensure we have a valid scene and bullets group
+    if (!this.scene || !this.bullets) {
+      return;
+    }
+    
     const currentTime = Date.now();
     if (currentTime - this.lastShootTime < this.shootCooldown) {
       return;
@@ -128,18 +115,22 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     
     this.lastShootTime = currentTime;
     
-    // Create bullet if not provided
-    if (!bullet) {
-      bullet = new Bullet(this.scene, this.x, this.y);
-      this.bullets.add(bullet);
+    try {
+      // Create bullet if not provided
+      if (!bullet) {
+        bullet = new Bullet(this.scene, this.x, this.y);
+        this.bullets.add(bullet);
+      }
+      
+      // Calculate angle and set velocity
+      const angle = Phaser.Math.Angle.Between(this.x, this.y, targetX, targetY);
+      bullet.setVelocity(
+        Math.cos(angle) * 400,
+        Math.sin(angle) * 400
+      );
+    } catch (error) {
+      console.error('Error in shootAt:', error);
     }
-    
-    // Calculate angle and set velocity
-    const angle = Phaser.Math.Angle.Between(this.x, this.y, targetX, targetY);
-    bullet.setVelocity(
-      Math.cos(angle) * 400,
-      Math.sin(angle) * 400
-    );
   }
 
   getBullets(): Phaser.GameObjects.Group {
@@ -178,7 +169,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   }
 
   // Deal damage to enemy on collision
-  dealCollisionDamage(enemy: any) {
+  dealCollisionDamage() {
     return this.collisionDamage;
   }
 
@@ -188,6 +179,10 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   
   resetHealth(health: number) {
     this.health = health;
+  }
+
+  addHealth(amount: number) {
+    this.health += amount;
   }
 
   isInvulnerableToDamage(): boolean {

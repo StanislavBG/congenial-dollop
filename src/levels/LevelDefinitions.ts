@@ -117,6 +117,18 @@ export const LEVELS: Record<number, Level> = {
         minDistance: 40
       }
     ],
+    goldenApples: [
+      { x: 400, y: 200, healthBonus: 50 },  // Top
+      { x: 500, y: 250, healthBonus: 50 },  // Top-right
+      { x: 550, y: 350, healthBonus: 50 },  // Right
+      { x: 500, y: 450, healthBonus: 50 },  // Bottom-right
+      { x: 400, y: 500, healthBonus: 50 },  // Bottom
+      { x: 300, y: 450, healthBonus: 50 },  // Bottom-left
+      { x: 250, y: 350, healthBonus: 50 },  // Left
+      { x: 300, y: 250, healthBonus: 50 },  // Top-left
+      { x: 350, y: 200, healthBonus: 50 },  // Top-left-center
+      { x: 450, y: 200, healthBonus: 50 }   // Top-right-center
+    ],
     scoreToComplete: 30 // 3 enemies × 10 points each
   },
 
@@ -132,6 +144,11 @@ export const LEVELS: Record<number, Level> = {
         spawnPattern: 'circle',
         minDistance: 40
       }
+    ],
+    goldenApples: [
+      { x: 300, y: 150, healthBonus: 75 },
+      { x: 500, y: 450, healthBonus: 75 },
+      { x: 400, y: 300, healthBonus: 100 }
     ],
     scoreToComplete: 30 // 3 enemies × 10 points each
   }

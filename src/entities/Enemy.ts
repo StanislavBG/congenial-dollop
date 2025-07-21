@@ -70,6 +70,11 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   }
 
   update(player: any) {
+    // Safety check: ensure we have a valid scene and body
+    if (!this.scene || !this.body) {
+      return;
+    }
+    
     // Check if slow effect has worn off
     if (this.isSlowed && this.scene.time.now > this.slowEndTime) {
       this.isSlowed = false;
@@ -77,12 +82,16 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     }
     
     // Gravitational AI: always move towards player
-    if (player) {
-      const angle = Phaser.Math.Angle.Between(this.x, this.y, player.x, player.y);
-      this.setVelocity(
-        Math.cos(angle) * this.moveSpeed,
-        Math.sin(angle) * this.moveSpeed
-      );
+    if (player && player.active) {
+      try {
+        const angle = Phaser.Math.Angle.Between(this.x, this.y, player.x, player.y);
+        this.setVelocity(
+          Math.cos(angle) * this.moveSpeed,
+          Math.sin(angle) * this.moveSpeed
+        );
+      } catch (error) {
+        console.error('Error updating enemy movement:', error);
+      }
     }
     
     // Keep enemy within bounds (main area: 800x600)

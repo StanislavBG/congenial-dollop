@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { Player } from '../entities/Player';
 
 import { GameSettings, GAME_SETTINGS } from '../types/Level';
-import { getLevel, getNextLevel } from '../levels/LevelDefinitions';
+import { getLevel } from '../levels/LevelDefinitions';
 import { SpawnManager } from '../managers/SpawnManager';
 
 export class MainScene extends Phaser.Scene {
@@ -16,7 +16,6 @@ export class MainScene extends Phaser.Scene {
   private levelInfoHeader!: Phaser.GameObjects.Text;
   private levelInfoDetails!: Phaser.GameObjects.Text;
   private healthSegments: Phaser.GameObjects.Rectangle[] = [];
-  private healthText!: Phaser.GameObjects.Text;
   private controlsText!: Phaser.GameObjects.Text;
   private controlsDetails!: Phaser.GameObjects.Text;
   private adminVisible: boolean = true; // Start with admin panel open
@@ -131,34 +130,35 @@ export class MainScene extends Phaser.Scene {
     
     // Only continue with normal game logic if R is not pressed
     if (this.gameState !== 'playing') {
-      // During transitions, update the transition countdown
-      // if (this.pauseReason === 'transition') { // Removed
-      //   this.updateLevelTransition(); // Removed
-      // }
       return; // Paused, game over, or completed - nothing updates
     }
     
-    if (this.player) {
+    // Safety check: ensure player exists and is active
+    if (this.player && this.player.active) {
       this.player.update(this.cursors);
       this.autoShoot();
     }
     
-    // Update timer
+    // Update timer with safety check
     const elapsedTime = Math.floor((this.time.now - this.gameStartTime - this.totalPauseTime) / 1000);
     if (this.timerText && this.timerText.active) {
       this.timerText.setText(this.formatAlignedText('Time', `${elapsedTime}s`));
     }
     
-    // Update spawn manager
+    // Update spawn manager with safety check
     if (this.spawnManager) {
       this.spawnManager.update();
     }
     
-    // Update enemies
-    this.enemies.children.each((enemy: any) => {
-      enemy.update(this.player);
-      return true;
-    });
+    // Update enemies with safety checks
+    if (this.enemies && this.enemies.children) {
+      this.enemies.children.each((enemy: any) => {
+        if (enemy && enemy.active && typeof enemy.update === 'function') {
+          enemy.update(this.player);
+        }
+        return true;
+      });
+    }
     
     // Check for level completion
     this.checkLevelCompletion();
@@ -333,6 +333,11 @@ export class MainScene extends Phaser.Scene {
   }
 
   private onBulletHitEnemy(bullet: any, enemy: any) {
+    // Safety checks
+    if (!bullet || !enemy || !bullet.active || !enemy.active) {
+      return;
+    }
+    
     // Destroy the bullet
     bullet.destroy();
     
@@ -351,7 +356,9 @@ export class MainScene extends Phaser.Scene {
         alpha: 0,
         duration: 300,
         onComplete: () => {
-          explosion.destroy();
+          if (explosion && explosion.active) {
+            explosion.destroy();
+          }
         }
       });
       
@@ -359,11 +366,18 @@ export class MainScene extends Phaser.Scene {
       
       // Increase score
       this.score += 10;
-      this.scoreText.setText(this.formatAlignedText('Score', this.score.toString()));
+      if (this.scoreText && this.scoreText.active) {
+        this.scoreText.setText(this.formatAlignedText('Score', this.score.toString()));
+      }
     }
   }
 
   private onPlayerHitEnemy(player: any, enemy: any) {
+    // Safety checks
+    if (!player || !enemy || !player.active || !enemy.active) {
+      return;
+    }
+    
     // Player takes damage from enemy
     const enemyDamage = enemy.getDamage();
     player.damage(enemyDamage);
@@ -389,7 +403,9 @@ export class MainScene extends Phaser.Scene {
         alpha: 0,
         duration: 300,
         onComplete: () => {
-          explosion.destroy();
+          if (explosion && explosion.active) {
+            explosion.destroy();
+          }
         }
       });
       
@@ -398,7 +414,9 @@ export class MainScene extends Phaser.Scene {
       
       // Increase score for enemy destruction
       this.score += 10;
-      this.scoreText.setText(this.formatAlignedText('Score', this.score.toString()));
+      if (this.scoreText && this.scoreText.active) {
+        this.scoreText.setText(this.formatAlignedText('Score', this.score.toString()));
+      }
     }
     
     if (player.getHealth() <= 0) {
@@ -407,20 +425,22 @@ export class MainScene extends Phaser.Scene {
   }
 
   private onEnemyCollision(enemy1: any, enemy2: any) {
-    // Don't process collisions if game is over
-    if (this.gameState === 'gameOver') {
+    // Safety checks
+    if (!enemy1 || !enemy2 || !enemy1.active || !enemy2.active || this.gameState === 'gameOver') {
+      return;
+    }
+    
+    // Validate physics bodies
+    if (!enemy1.body || !enemy2.body) {
       return;
     }
     
     // Simple bounce effect - enemies push each other apart
-    const angle = Phaser.Math.Angle.Between(enemy1.x, enemy1.y, enemy2.x, enemy2.y);
     const distance = Phaser.Math.Distance.Between(enemy1.x, enemy1.y, enemy2.x, enemy2.y);
     
     // Push enemies apart if they're too close
     if (distance < 30) {
       const pushForce = 50;
-      const pushX = Math.cos(angle) * pushForce;
-      const pushY = Math.sin(angle) * pushForce;
       
       // Apply opposite forces to separate them
       enemy1.setVelocity(enemy1.body.velocity.x - pushForce, enemy1.body.velocity.y - pushForce);
@@ -610,11 +630,6 @@ export class MainScene extends Phaser.Scene {
     
     // Update Enemy: Red Dot info - only when count changes
     if (this.spawnManager) {
-      const progress = this.spawnManager.getSpawnProgress();
-      
-      // Debug: Show current level
-      console.log(`🎮 Current Level: ${this.currentLevelId}`);
-      
       // Count Red Dots
       const redDotCount = this.enemies.getChildren().filter((enemy: any) => 
         enemy.active && enemy.getEnemyType() === 'redDot'
@@ -624,16 +639,6 @@ export class MainScene extends Phaser.Scene {
       const yellowDotCount = this.enemies.getChildren().filter((enemy: any) => 
         enemy.active && enemy.getEnemyType() === 'yellowDot'
       ).length;
-      
-      // Debug logging
-      if (redDotCount > 0 || yellowDotCount > 0) {
-        console.log(`🔍 Active enemies - Red Dots: ${redDotCount}, Yellow Dots: ${yellowDotCount}`);
-        this.enemies.getChildren().forEach((enemy: any, index: number) => {
-          if (enemy.active) {
-            console.log(`  Enemy ${index}: type=${enemy.getEnemyType()}, active=${enemy.active}`);
-          }
-        });
-      }
       
       // Only update if counts changed
       if (redDotCount !== this.lastRedDotCount) {
@@ -725,21 +730,35 @@ export class MainScene extends Phaser.Scene {
   }
 
   private autoShoot() {
+    // Safety check: ensure player exists and is active
+    if (!this.player || !this.player.active) {
+      return;
+    }
+    
     const currentTime = this.time.now;
     if (currentTime - this.lastShootTime >= this.gameSettings.shootInterval) {
       const closestEnemy = this.findClosestEnemy();
-      if (closestEnemy) {
-        this.player.shootAt(closestEnemy.x, closestEnemy.y);
-        this.lastShootTime = currentTime;
+      if (closestEnemy && closestEnemy.active) {
+        try {
+          this.player.shootAt(closestEnemy.x, closestEnemy.y);
+          this.lastShootTime = currentTime;
+        } catch (error) {
+          console.error('Error in autoShoot:', error);
+        }
       }
     }
   }
   
   private findClosestEnemy(): any {
+    // Safety check: ensure player and enemies exist
+    if (!this.player || !this.player.active || !this.enemies || !this.enemies.children) {
+      return null;
+    }
+    
     const now = this.time.now;
     
     // Cache results for 100ms to avoid expensive calculations every frame
-    if (now - this.lastDistanceCheck < 100 && this.cachedClosestEnemy) {
+    if (now - this.lastDistanceCheck < 100 && this.cachedClosestEnemy && this.cachedClosestEnemy.active) {
       return this.cachedClosestEnemy;
     }
     
@@ -747,14 +766,18 @@ export class MainScene extends Phaser.Scene {
     let closestDistance = Infinity;
     
     this.enemies.getChildren().forEach((enemy: any) => {
-      if (enemy.active) {
-        const distance = Phaser.Math.Distance.Between(
-          this.player.x, this.player.y,
-          enemy.x, enemy.y
-        );
-        if (distance < closestDistance) {
-          closestDistance = distance;
-          closestEnemy = enemy;
+      if (enemy && enemy.active) {
+        try {
+          const distance = Phaser.Math.Distance.Between(
+            this.player.x, this.player.y,
+            enemy.x, enemy.y
+          );
+          if (distance < closestDistance) {
+            closestDistance = distance;
+            closestEnemy = enemy;
+          }
+        } catch (error) {
+          console.error('Error calculating distance to enemy:', error);
         }
       }
     });
@@ -969,11 +992,8 @@ export class MainScene extends Phaser.Scene {
 
   // NEW METHOD: Clean all text objects from scene
   private clearAllTextObjects() {
-    console.log('Clearing all text objects from scene');
-    
     // Get all text objects in the scene
     const allTexts = this.children.list.filter(child => child.type === 'Text');
-    console.log(`Found ${allTexts.length} text objects to clear`);
     
     // Destroy all text objects except UI elements we want to keep
     allTexts.forEach((textObj: any) => {
@@ -1004,12 +1024,10 @@ export class MainScene extends Phaser.Scene {
           textContent.startsWith('Score:') ||
           textContent.startsWith('Time:') ||
           textContent.startsWith('Level:')) {
-        console.log(`Preserving UI text: "${textContent}"`);
         return;
       }
       
       // Destroy all other text objects
-      console.log(`Destroying text: "${textContent}"`);
       text.destroy();
     });
     
@@ -1018,8 +1036,6 @@ export class MainScene extends Phaser.Scene {
     
     // Reset our text references
     this.levelCompleteText = null;
-    
-    console.log('All text objects cleared');
   }
 
   // Reset performance tracking variables
@@ -1032,5 +1048,39 @@ export class MainScene extends Phaser.Scene {
     this.lastPlayerY = -1;
     this.cachedClosestEnemy = null;
     this.lastDistanceCheck = 0;
+  }
+
+  // Clean up resources when scene is shutdown
+  shutdown() {
+    // Clean up event listeners
+    if (this.input.keyboard) {
+      this.input.keyboard.off('keydown-P');
+      this.input.keyboard.off('keydown-TAB');
+      this.input.keyboard.off('keydown-SPACE');
+      this.input.keyboard.off('keydown-T');
+    }
+    
+    // Clean up created text objects
+    this.createdTexts.forEach(text => {
+      if (text && text.active) {
+        text.destroy();
+      }
+    });
+    this.createdTexts.clear();
+    
+    // Clean up spawn manager
+    if (this.spawnManager) {
+      this.spawnManager.stopLevel();
+    }
+    
+    // Clean up enemies
+    if (this.enemies) {
+      this.enemies.clear(true, true);
+    }
+    
+    // Clean up player
+    if (this.player) {
+      this.player.destroy();
+    }
   }
 } 
