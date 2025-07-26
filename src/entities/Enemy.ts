@@ -11,7 +11,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   private enemyType: string;
   private enemyColor: number;
 
-  constructor(scene: Phaser.Scene, x: number, y: number, health: number = 30, moveSpeed: number = 120, damage: number = 20, enemyType: string = 'redDot', color: number = 0xff0000) {
+  constructor(scene: Phaser.Scene, x: number, y: number, health: number = 30, moveSpeed: number = 120, damage: number = 20, enemyType: string = 'redDot', color: number = 0xff0000, radius: number = 12) {
     super(scene, x, y, 'enemy');
     
     this.health = health;
@@ -29,11 +29,11 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     // Set up enemy properties
     this.setScale(0.4);
     
-    // Create enemy sprite
-    this.createEnemySprite();
+    // Create enemy sprite with proper radius
+    this.createEnemySprite(radius);
   }
 
-  private createEnemySprite() {
+  private createEnemySprite(radius: number) {
     // Create a unique texture name for this enemy type
     const textureName = `enemy_${this.enemyType}`;
     
@@ -43,14 +43,14 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       return;
     }
     
-    // Create a circle with the enemy's color
+    // Create a circle with the enemy's color and proper radius
     const graphics = this.scene.add.graphics();
     graphics.fillStyle(this.enemyColor);
-    graphics.fillCircle(0, 0, 12);
+    graphics.fillCircle(0, 0, radius);
     // Add a small highlight to make it look more 3D
     graphics.fillStyle(this.getHighlightColor());
-    graphics.fillCircle(-3, -3, 4);
-    graphics.generateTexture(textureName, 24, 24);
+    graphics.fillCircle(-radius/4, -radius/4, radius/3);
+    graphics.generateTexture(textureName, radius * 2, radius * 2);
     graphics.destroy();
     
     this.setTexture(textureName);

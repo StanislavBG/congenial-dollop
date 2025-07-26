@@ -4,17 +4,31 @@ import { Player } from '../entities/Player';
 import { GameSettings, GAME_SETTINGS } from '../types/Level';
 import { getLevel } from '../levels/LevelDefinitions';
 import { SpawnManager } from '../managers/SpawnManager';
+import { ShopUI } from '../ui/ShopUI';
+import { ShopCard } from '../types/Shop';
 
 export class MainScene extends Phaser.Scene {
   private player!: Player;
+  
+
+
+
+  preload() {
+    // Load player images (single sprites, not spritesheets)
+    this.load.image('player-idle', 'src/assets/sprites/character_green_idle.png');
+    this.load.image('player-walk-a', 'src/assets/sprites/character_green_walk_a.png');
+    this.load.image('player-walk-b', 'src/assets/sprites/character_green_walk_b.png');
+    this.load.image('player-hit', 'src/assets/sprites/character_green_hit.png');
+  }
+
   private enemies!: Phaser.GameObjects.Group;
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
   private score: number = 0;
   private scoreText!: Phaser.GameObjects.Text;
   private playerInfoHeader!: Phaser.GameObjects.Text;
   private playerInfoDetails!: Phaser.GameObjects.Text;
-  private levelInfoHeader!: Phaser.GameObjects.Text;
-  private levelInfoDetails!: Phaser.GameObjects.Text;
+  private enemyInfoElements: Map<string, { header: Phaser.GameObjects.Text, details: Phaser.GameObjects.Text }> = new Map();
+  // Removed hardcoded enemy UI elements - now using dynamic system
   private healthSegments: Phaser.GameObjects.Rectangle[] = [];
   private controlsText!: Phaser.GameObjects.Text;
   private controlsDetails!: Phaser.GameObjects.Text;
@@ -27,20 +41,19 @@ export class MainScene extends Phaser.Scene {
   private gameSettings: GameSettings = GAME_SETTINGS;
   private pauseText!: Phaser.GameObjects.Text;
   private levelText!: Phaser.GameObjects.Text;
-  private yellowDotHeader!: Phaser.GameObjects.Text;
-  private yellowDotDetails!: Phaser.GameObjects.Text;
+  // Removed hardcoded yellow dot UI elements - now using dynamic system
+  private healthBarText!: Phaser.GameObjects.Text;
 
-  private gameState: 'playing' | 'paused' | 'gameOver' | 'completed' = 'playing';
+  private gameState: 'playing' | 'paused' | 'gameOver' | 'completed' | 'shop' = 'playing';
   private pauseStartTime: number = 0;
   private totalPauseTime: number = 0;
   private levelCompleteText!: Phaser.GameObjects.Text | null;
   private pauseReason: 'user' | 'levelComplete' | null = null;
+  private shopUI!: ShopUI;
   
   // Performance optimization tracking variables
   private lastPlayerHealth: number = -1;
   private lastPlayerSpeed: number = -1;
-  private lastRedDotCount: number = -1;
-  private lastYellowDotCount: number = -1;
   private lastPlayerX: number = -1;
   private lastPlayerY: number = -1;
   private cachedClosestEnemy: any = null;
@@ -49,8 +62,8 @@ export class MainScene extends Phaser.Scene {
   
   // Easy mode switching - just change this one variable
   private readonly USE_TEST_MODE: boolean = true;
-  private readonly TEST_LEVELS: number[] = [101, 102];
-  private readonly PRODUCTION_LEVELS: number[] = [1, 2];
+  private readonly TEST_LEVELS: number[] = [101, 102, 103];
+  private readonly PRODUCTION_LEVELS: number[] = [1, 2, 3];
   private rKeyPressed: boolean = false;
 
   constructor() {
@@ -76,8 +89,8 @@ export class MainScene extends Phaser.Scene {
     // Set starting level based on mode
     this.currentLevelId = this.USE_TEST_MODE ? this.TEST_LEVELS[0] : this.PRODUCTION_LEVELS[0];
     
-    // Set up player
-    this.player = new Player(this, 400, 300, this.gameSettings.playerHealth);
+    // Set up player with starting health of 100 (not full 500)
+    this.player = new Player(this, 400, 300, 100);
     
     // Set up enemies
     this.enemies = this.add.group();
@@ -92,6 +105,9 @@ export class MainScene extends Phaser.Scene {
     // Set up UI
     this.setupUI();
     this.setupAdminUI();
+    
+    // Set up shop UI
+    this.shopUI = new ShopUI(this);
     
     // Debug admin visibility
     console.log('Admin visible after setup:', this.adminVisible);
@@ -130,7 +146,7 @@ export class MainScene extends Phaser.Scene {
     
     // Only continue with normal game logic if R is not pressed
     if (this.gameState !== 'playing') {
-      return; // Paused, game over, or completed - nothing updates
+      return; // Paused, game over, completed, or shop - nothing updates
     }
     
     // Safety check: ensure player exists and is active
@@ -189,55 +205,27 @@ export class MainScene extends Phaser.Scene {
     this.playerInfoDetails.setStyle({ wordWrap: { width: 150 } });
     this.playerInfoDetails.setVisible(this.adminVisible);
     
-    // Enemy: Red Dot header (bottom center, anchored)
-    this.levelInfoHeader = this.add.text(200, 460, 'Enemy: Red Dot', {
-      fontSize: '16px',
-      color: '#ffffff',
-      stroke: '#000',
-      strokeThickness: 1
-    });
-    this.levelInfoHeader.setVisible(this.adminVisible);
-    
-    // Enemy: Red Dot details (bottom center, anchored) - static properties + count
-    this.levelInfoDetails = this.add.text(200, 480, 'Health: 30/30\nSpeed: 120\nDamage: 20\nActive: 0', {
-      fontSize: '12px',
-      color: '#ffff00',
-      stroke: '#000',
-      strokeThickness: 2
-    }).setInteractive();
-    this.levelInfoDetails.setStyle({ wordWrap: { width: 150 } });
-    this.levelInfoDetails.setVisible(this.adminVisible);
-    
-    // Enemy: Yellow Dot header (bottom right, anchored)
-    this.yellowDotHeader = this.add.text(380, 460, 'Enemy: Yellow Dot', {
-      fontSize: '16px',
-      color: '#ffffff',
-      stroke: '#000',
-      strokeThickness: 1
-    });
-    this.yellowDotHeader.setVisible(this.adminVisible);
-    
-    // Enemy: Yellow Dot details (bottom right, anchored) - static properties + count
-    this.yellowDotDetails = this.add.text(380, 480, 'Health: 40/40\nSpeed: 110\nDamage: 50\nActive: 0', {
-      fontSize: '12px',
-      color: '#ffff00',
-      stroke: '#000',
-      strokeThickness: 2
-    }).setInteractive();
-    this.yellowDotDetails.setStyle({ wordWrap: { width: 150 } });
-    this.yellowDotDetails.setVisible(this.adminVisible);
-    
     console.log('Admin UI setup complete, all elements visible:', this.adminVisible);
   }
 
+
+
+
+
+
+
+
+
   private setupUI() {
-    // Segmented health bar (top left, inside main area)
-    const segmentWidth = 12;
-    const segmentHeight = 20;
-    const segmentSpacing = 2;
-    const startX = 20;
-    const startY = 20;
-    const healthSegments = Math.ceil(this.gameSettings.playerHealth / 5);
+    // Health bar from top-left to middle of screen (dynamic HP capacity)
+    const healthSegments = Math.ceil(100 / 5); // Start with 100 HP = 20 segments
+    const totalWidth = 400; // Width from left margin to middle of screen
+    const segmentWidth = Math.floor((totalWidth - (healthSegments - 1)) / healthSegments); // Calculate segment width to fit exactly
+    const segmentHeight = 25; // Taller for better visibility
+    const segmentSpacing = 1; // Tighter spacing
+    const startX = 20; // Left margin
+    const startY = 20; // Top of screen
+    
     for (let i = 0; i < healthSegments; i++) {
       const rect = this.add.rectangle(
         startX + i * (segmentWidth + segmentSpacing),
@@ -248,6 +236,15 @@ export class MainScene extends Phaser.Scene {
       ).setOrigin(0, 0);
       this.healthSegments.push(rect);
     }
+    
+    // Health bar text (anchored on right side of health bar)
+    this.healthBarText = this.add.text(420, 20, '', {
+      fontSize: '14px',
+      color: '#ffffff',
+      stroke: '#000',
+      strokeThickness: 2,
+      fontFamily: 'monospace'
+    }).setOrigin(0, 0);
     
     // Score text (top right, inside main area)
     this.scoreText = this.add.text(650, 20, this.formatAlignedText('Score', '0'), {
@@ -276,8 +273,8 @@ export class MainScene extends Phaser.Scene {
       fontFamily: 'monospace'
     }).setOrigin(0, 0); // Left-aligned
     
-    // Controls text (bottom center)
-    this.controlsText = this.add.text(20, 300, 'Controls', {
+    // Controls text (under health bar)
+    this.controlsText = this.add.text(20, 60, 'Controls', {
       fontSize: '16px',
       color: '#ffffff',
       stroke: '#000',
@@ -285,7 +282,7 @@ export class MainScene extends Phaser.Scene {
     });
     
     // Controls details (below header)
-    this.controlsDetails = this.add.text(20, 320, 'WASD Movement\nP Pause/Resume\nTAB Toggle Admin\nR Restart', {
+    this.controlsDetails = this.add.text(20, 80, 'WASD Movement\nP Pause/Resume\nTAB Toggle Admin\nR Restart\n1,2,3 Shop Cards', {
       fontSize: '12px',
       color: '#ffff00',
       stroke: '#000',
@@ -293,6 +290,8 @@ export class MainScene extends Phaser.Scene {
     });
     
     this.updateControls();
+    
+
     
     // Pause text (center top of screen)
     this.pauseText = this.add.text(400, 100, 'PAUSED', {
@@ -342,7 +341,7 @@ export class MainScene extends Phaser.Scene {
     bullet.destroy();
     
     // Damage the enemy
-    const bulletDamage = this.gameSettings.bulletDamage;
+    const bulletDamage = this.player.getBulletDamage();
     const enemyDied = enemy.takeDamage(bulletDamage);
     
     // If enemy died, remove it and add score
@@ -464,10 +463,32 @@ export class MainScene extends Phaser.Scene {
       this.toggleAdmin();
     });
     
-    // Continue to next level when paused for level complete
+    // Continue to next level when paused for level complete or in shop
     this.input.keyboard!.on('keydown-SPACE', () => {
       if (this.gameState === 'paused' && this.pauseReason === 'levelComplete') {
         this.continueToNextLevel();
+      } else if (this.gameState === 'shop') {
+        // Clear messages immediately when SPACE is pressed in shop
+        this.clearAllTextObjects();
+      }
+    });
+    
+    // Shop card selection with keyboard
+    this.input.keyboard!.on('keydown-ONE', () => {
+      if (this.gameState === 'shop' && this.shopUI) {
+        this.shopUI.selectCardByIndex(0);
+      }
+    });
+    
+    this.input.keyboard!.on('keydown-TWO', () => {
+      if (this.gameState === 'shop' && this.shopUI) {
+        this.shopUI.selectCardByIndex(1);
+      }
+    });
+    
+    this.input.keyboard!.on('keydown-THREE', () => {
+      if (this.gameState === 'shop' && this.shopUI) {
+        this.shopUI.selectCardByIndex(2);
       }
     });
   }
@@ -484,21 +505,23 @@ export class MainScene extends Phaser.Scene {
     // Clear all text objects
     this.clearAllTextObjects();
     
-    // Reset for next level
+    // Hide shop UI
+    this.shopUI.hide();
+    
+    // Continue to next level - preserve score and health
     this.currentLevelId = nextLevelId;
-    this.score = 0;
+    // Don't reset score - let it accumulate across levels
     
     // Only update UI text if it still exists (wasn't destroyed)
     if (this.scoreText && this.scoreText.active) {
-      this.scoreText.setText(this.formatAlignedText('Score', '0'));
+      this.scoreText.setText(this.formatAlignedText('Score', this.score.toString()));
     }
     if (this.levelText && this.levelText.active) {
       this.levelText.setText(this.formatAlignedText('Level', this.currentLevelId.toString().padStart(2, '0')));
     }
     
-    // Reset player health
+    // Preserve player health between levels - don't reset it!
     if (this.player) {
-      this.player.resetHealth(this.gameSettings.playerHealth);
       this.updateHealthBar();
     }
     
@@ -513,7 +536,7 @@ export class MainScene extends Phaser.Scene {
     }
     
     // Resume the game
-    this.resumeGame();
+    this.gameState = 'playing';
     
     // Reset game start time for new level
     this.gameStartTime = this.time.now;
@@ -578,10 +601,12 @@ export class MainScene extends Phaser.Scene {
     // Update admin UI visibility
     this.playerInfoHeader.setVisible(this.adminVisible);
     this.playerInfoDetails.setVisible(this.adminVisible);
-    this.levelInfoHeader.setVisible(this.adminVisible);
-    this.levelInfoDetails.setVisible(this.adminVisible);
-    this.yellowDotHeader.setVisible(this.adminVisible);
-    this.yellowDotDetails.setVisible(this.adminVisible);
+    
+    // Update dynamic enemy UI elements
+    this.enemyInfoElements.forEach(({ header, details }) => {
+      header.setVisible(this.adminVisible);
+      details.setVisible(this.adminVisible);
+    });
     
     // Force update the admin UI when showing
     if (this.adminVisible) {
@@ -609,12 +634,14 @@ export class MainScene extends Phaser.Scene {
           playerY !== this.lastPlayerY) {
         
         const fireRate = Math.round(1000 / this.gameSettings.shootInterval * 10) / 10; // shots per second
-        const bulletDamage = this.gameSettings.bulletDamage;
+        const bulletDamage = this.player.getBulletDamage();
         const collisionDamage = this.player.getCollisionDamage();
         const isInvulnerable = this.player.isInvulnerableToDamage();
+        const maxHealth = this.player.getMaxHealth();
+        const movementSpeed = this.player.getMovementSpeed();
         
         this.playerInfoDetails.setText(
-          `Health: ${playerHealth}\nSpeed: ${Math.round(playerSpeed)}\nFire Rate: ${fireRate}/s\nBullet Dmg: ${bulletDamage}\nCollision Damage: ${collisionDamage}\nInvulnerable: ${isInvulnerable ? 'Yes' : 'No'}\nPos: (${playerX}, ${playerY})`
+          `Health: ${playerHealth}/${maxHealth}\nSpeed: ${movementSpeed}\nFire Rate: ${fireRate}/s\nBullet Dmg: ${bulletDamage}\nCollision Damage: ${collisionDamage}\nInvulnerable: ${isInvulnerable ? 'Yes' : 'No'}\nPos: (${playerX}, ${playerY})`
         );
         
         // Update segmented health bar
@@ -628,56 +655,105 @@ export class MainScene extends Phaser.Scene {
       }
     }
     
-    // Update Enemy: Red Dot info - only when count changes
+    // Update dynamic enemy info - only show enemies with active count > 0
     if (this.spawnManager) {
-      // Count Red Dots
-      const redDotCount = this.enemies.getChildren().filter((enemy: any) => 
-        enemy.active && enemy.getEnemyType() === 'redDot'
-      ).length;
-      
-      // Count Yellow Dots
-      const yellowDotCount = this.enemies.getChildren().filter((enemy: any) => 
-        enemy.active && enemy.getEnemyType() === 'yellowDot'
-      ).length;
-      
-      // Only update if counts changed
-      if (redDotCount !== this.lastRedDotCount) {
-        this.levelInfoDetails.setText(
-          `Health: 30/30\nSpeed: 120\nDamage: 20\nActive: ${redDotCount}`
-        );
-        this.lastRedDotCount = redDotCount;
-      }
-      
-      if (yellowDotCount !== this.lastYellowDotCount) {
-        this.yellowDotDetails.setText(
-          `Health: 40/40\nSpeed: 110\nDamage: 50\nActive: ${yellowDotCount}`
-        );
-        this.lastYellowDotCount = yellowDotCount;
-      }
+      this.updateDynamicEnemyUI();
     }
+  }
+
+  private updateDynamicEnemyUI(): void {
+    // Get all enemy types currently active
+    const enemyCounts = new Map<string, number>();
+    const enemyTypes = new Set<string>();
+    
+    this.enemies.getChildren().forEach((enemy: any) => {
+      if (enemy.active) {
+        const enemyType = enemy.getEnemyType();
+        enemyTypes.add(enemyType);
+        enemyCounts.set(enemyType, (enemyCounts.get(enemyType) || 0) + 1);
+      }
+    });
+    
+    // Remove UI elements for enemies that are no longer active
+    this.enemyInfoElements.forEach((elements, enemyType) => {
+      if (!enemyTypes.has(enemyType)) {
+        elements.header.destroy();
+        elements.details.destroy();
+        this.enemyInfoElements.delete(enemyType);
+      }
+    });
+    
+    // Create or update UI elements for active enemies
+    let xOffset = 200; // Start position for enemy info
+    enemyTypes.forEach(enemyType => {
+      const count = enemyCounts.get(enemyType) || 0;
+      
+      if (!this.enemyInfoElements.has(enemyType)) {
+        // Create new UI elements for this enemy type
+        const header = this.add.text(xOffset, 460, `Enemy: ${enemyType}`, {
+          fontSize: '16px',
+          color: '#ffffff',
+          stroke: '#000',
+          strokeThickness: 1
+        });
+        header.setVisible(this.adminVisible);
+        
+        const details = this.add.text(xOffset, 480, '', {
+          fontSize: '12px',
+          color: '#ffff00',
+          stroke: '#000',
+          strokeThickness: 2
+        }).setInteractive();
+        details.setStyle({ wordWrap: { width: 150 } });
+        details.setVisible(this.adminVisible);
+        
+        this.enemyInfoElements.set(enemyType, { header, details });
+        xOffset += 180; // Space between enemy info sections
+      }
+      
+      // Update the details text
+      const elements = this.enemyInfoElements.get(enemyType);
+      if (elements) {
+        // Get enemy stats from the first enemy of this type
+        const firstEnemy = this.enemies.getChildren().find((enemy: any) => 
+          enemy.active && enemy.getEnemyType() === enemyType
+        );
+        
+        if (firstEnemy && typeof (firstEnemy as any).getHealth === 'function') {
+          const health = (firstEnemy as any).getHealth();
+          const maxHealth = (firstEnemy as any).getMaxHealth();
+          const speed = (firstEnemy as any).getMoveSpeed();
+          const damage = (firstEnemy as any).getDamage();
+          
+          elements.details.setText(
+            `Health: ${health}/${maxHealth}\nSpeed: ${speed}\nDamage: ${damage}\nActive: ${count}`
+          );
+        }
+      }
+    });
   }
 
   // Update health bar segments based on current player health
   private updateHealthBar() {
     if (this.player) {
       const playerHealth = this.player.getHealth();
+      const maxHealth = this.player.getMaxHealth();
       const segmentsToShow = Math.ceil(playerHealth / 5);
-      const maxHealth = this.gameSettings.playerHealth;
-      const healthPercentage = playerHealth / maxHealth;
+      
+      // Show health text when bar is not full or when it's full
+      if (this.healthBarText && this.healthBarText.active) {
+        if (playerHealth < maxHealth || playerHealth === maxHealth) {
+          this.healthBarText.setText(`${playerHealth}`);
+          this.healthBarText.setVisible(true);
+        } else {
+          this.healthBarText.setVisible(false);
+        }
+      }
       
       for (let i = 0; i < this.healthSegments.length; i++) {
         if (i < segmentsToShow) {
-          // Color based on health percentage
-          if (healthPercentage <= 0.25) {
-            // Critical health - red
-            this.healthSegments[i].setFillStyle(0xff0000);
-          } else if (healthPercentage <= 0.5) {
-            // Low health - orange
-            this.healthSegments[i].setFillStyle(0xff8800);
-          } else {
-            // Good health - green
-            this.healthSegments[i].setFillStyle(0x00ff00);
-          }
+          // Active health segments - green
+          this.healthSegments[i].setFillStyle(0x00ff00);
         } else {
           // Empty segments - gray
           this.healthSegments[i].setFillStyle(0x444444);
@@ -708,17 +784,17 @@ export class MainScene extends Phaser.Scene {
       this.player = null as any;
     }
     
-    // Create tracked text objects
-    this.createGameText(400, 250, 'GAME OVER', {
-      fontSize: '64px',
-      color: '#ff0000',
+    // Game Over - You lost! (red, Message-1 slot)
+    this.createGameText(400, 200, 'Game Over - You lost!', {
+      fontSize: '48px',
+      color: '#ff0000', // Red
       stroke: '#000',
-      strokeThickness: 6
+      strokeThickness: 4
     }).setOrigin(0.5);
 
-    this.createGameText(400, 350, 'Press R to restart', {
-      fontSize: '24px',
-      color: '#fff'
+    this.createGameText(400, 240, 'Press R to restart', {
+      fontSize: '20px',
+      color: '#fff',
     }).setOrigin(0.5);
   }
 
@@ -799,9 +875,9 @@ export class MainScene extends Phaser.Scene {
     // Reset performance tracking variables
     this.resetPerformanceTracking();
     
-    // Reset player health to game settings
+    // Reset player health to starting health (100 HP)
     if (this.player) {
-      this.player.resetHealth(this.gameSettings.playerHealth);
+      this.player.resetHealth(100);
     }
     
     // Reset health bar segments
@@ -815,13 +891,14 @@ export class MainScene extends Phaser.Scene {
     this.healthSegments.forEach(segment => segment.destroy());
     this.healthSegments = [];
     
-    // Recreate health segments with full health
-    const segmentWidth = 12;
-    const segmentHeight = 20;
-    const segmentSpacing = 2;
-    const startX = 20;
-    const startY = 20;
-    const healthSegments = Math.ceil(this.gameSettings.playerHealth / 5);
+    // Recreate health segments from top-left to middle
+    const healthSegments = Math.ceil(this.gameSettings.playerHealth / 5); // 500/5 = 100 segments
+    const totalWidth = 400; // Width from left margin to middle of screen
+    const segmentWidth = Math.floor((totalWidth - (healthSegments - 1)) / healthSegments); // Calculate segment width to fit exactly
+    const segmentHeight = 25; // Taller for better visibility
+    const segmentSpacing = 1; // Tighter spacing
+    const startX = 20; // Left margin
+    const startY = 20; // Top of screen
     
     for (let i = 0; i < healthSegments; i++) {
       const rect = this.add.rectangle(
@@ -925,7 +1002,7 @@ export class MainScene extends Phaser.Scene {
     }
     
     // Show level complete message using tracked creation
-    this.levelCompleteText = this.createGameText(400, 250, 'LEVEL COMPLETE!', {
+    this.levelCompleteText = this.createGameText(400, 200, 'LEVEL COMPLETE!', {
       fontSize: '48px',
       color: '#00ff00',
       stroke: '#000',
@@ -946,21 +1023,8 @@ export class MainScene extends Phaser.Scene {
     const nextLevelId = currentIndex >= 0 && currentIndex < currentLevels.length - 1 ? currentLevels[currentIndex + 1] : null;
     
     if (nextLevelId) {
-      // Show next level info
-      this.createGameText(400, 350, `Next: Level ${nextLevelId}`, {
-        fontSize: '24px',
-        color: '#ffff00',
-        stroke: '#000',
-        strokeThickness: 2
-      }).setOrigin(0.5);
-      
-      this.createGameText(400, 380, 'Press SPACE to continue', {
-        fontSize: '20px',
-        color: '#fff'
-      }).setOrigin(0.5);
-      
-      // Pause game with hidden pause text
-      this.pauseGame('levelComplete');
+      // Show shop for intermediate levels
+      this.showShop();
     } else {
       // Game completed - show victory message
       console.log('Game completed - showing victory message');
@@ -976,16 +1040,17 @@ export class MainScene extends Phaser.Scene {
         this.levelCompleteText = null;
       }
       
-      this.createGameText(400, 250, 'GAME COMPLETED!', {
-        fontSize: '32px',
-        color: '#ffff00',
+      // Victory message already uses green in the same slot
+      this.createGameText(400, 200, 'Game Over - You won!', {
+        fontSize: '48px',
+        color: '#00ff00', // Green, same as LEVEL COMPLETE!
         stroke: '#000',
         strokeThickness: 4
       }).setOrigin(0.5);
       
-      this.createGameText(400, 300, 'Press R to restart', {
-        fontSize: '24px',
-        color: '#fff'
+      this.createGameText(400, 240, 'Press R to restart', {
+        fontSize: '20px',
+        color: '#fff', // White, same as Press SPACE to continue
       }).setOrigin(0.5);
     }
   }
@@ -1005,12 +1070,9 @@ export class MainScene extends Phaser.Scene {
           text === this.timerText ||
           text === this.levelText ||
           text === this.pauseText ||
+          text === this.healthBarText ||
           text === this.playerInfoHeader ||
           text === this.playerInfoDetails ||
-          text === this.levelInfoHeader ||
-          text === this.levelInfoDetails ||
-          text === this.yellowDotHeader ||
-          text === this.yellowDotDetails ||
           text === this.controlsText ||
           text === this.controlsDetails ||
           textContent.includes('Player Info') ||
@@ -1042,13 +1104,84 @@ export class MainScene extends Phaser.Scene {
   private resetPerformanceTracking() {
     this.lastPlayerHealth = -1;
     this.lastPlayerSpeed = -1;
-    this.lastRedDotCount = -1;
-    this.lastYellowDotCount = -1;
     this.lastPlayerX = -1;
     this.lastPlayerY = -1;
     this.cachedClosestEnemy = null;
     this.lastDistanceCheck = 0;
   }
+
+  // Shop methods
+  private showShop(): void {
+    this.gameState = 'shop';
+    
+    // Show "Press SPACE to continue" message (level complete message already shown by handleLevelComplete)
+    this.createGameText(400, 240, 'Press SPACE to continue', {
+      fontSize: '20px',
+      color: '#fff'
+    }).setOrigin(0.5);
+    
+    // Show shop UI with current level for scaling
+    this.shopUI.show((card: ShopCard) => {
+      this.handleCardSelection(card);
+    }, this.currentLevelId);
+  }
+
+  private handleCardSelection(card: ShopCard): void {
+    if (!this.player) return;
+    
+    // Clear level complete messages immediately to prevent overlap with upgrade notification
+    this.clearAllTextObjects();
+    
+    // Show upgrade effect
+    this.showUpgradeEffect(card);
+    
+    // Apply the upgrade based on card type
+    switch (card.type) {
+      case 'health':
+        // Health card restores current health (doesn't increase max health)
+        this.player.addHealth(card.value);
+        break;
+      case 'damage':
+        this.player.upgradeDamage(card.value);
+        break;
+      case 'speed':
+        this.player.upgradeSpeed(card.value);
+        break;
+    }
+    
+    // Update health bar to reflect new max health
+    this.updateHealthBar();
+    
+    // Continue to next level after a short delay
+    this.time.delayedCall(1000, () => {
+      this.continueToNextLevel();
+    });
+  }
+
+  private showUpgradeEffect(card: ShopCard): void {
+    // Create upgrade text
+    const upgradeText = this.add.text(400, 300, `+${card.value} ${card.type.toUpperCase()}!`, {
+      fontSize: '32px',
+      color: '#ffff00',
+      stroke: '#000000',
+      strokeThickness: 3
+    }).setOrigin(0.5);
+    
+    // Animate the text
+    this.tweens.add({
+      targets: upgradeText,
+      y: 200,
+      alpha: 0,
+      scale: 1.5,
+      duration: 1000,
+      onComplete: () => {
+        upgradeText.destroy();
+      }
+    });
+  }
+
+  // Note: recreateHealthBar method removed since health cards now only restore current health
+  // For future maxHealth cards, this method can be restored
 
   // Clean up resources when scene is shutdown
   shutdown() {

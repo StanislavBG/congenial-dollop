@@ -3,30 +3,31 @@ import Phaser from 'phaser';
 export class Player extends Phaser.Physics.Arcade.Sprite {
   private bullets!: Phaser.GameObjects.Group;
   private health: number;
+  private maxHealth: number = 100;
   private lastShootTime: number = 0;
   private shootCooldown: number = 200; // milliseconds
   private wasdKeys!: { W: Phaser.Input.Keyboard.Key, A: Phaser.Input.Keyboard.Key, S: Phaser.Input.Keyboard.Key, D: Phaser.Input.Keyboard.Key };
   private isInvulnerable: boolean = false;
   private invulnerabilityEndTime: number = 0;
   private collisionDamage: number = 15; // Damage player does to enemies on collision
-
+  private bulletDamage: number = 10; // Base bullet damage
+  private movementSpeed: number = 200; // Base movement speed
   constructor(scene: Phaser.Scene, x: number, y: number, health: number = 100) {
-    super(scene, x, y, 'player');
+    super(scene, x, y, 'player-idle');
     
     this.health = health;
+    this.maxHealth = health;
     
     // Add to scene and enable physics
     scene.add.existing(this);
     scene.physics.add.existing(this);
     
-    // Set up player properties
-    this.setScale(0.5);
+    // Set proper scale and origin
+    this.setScale(0.25); // Scale down for 256x256 sprites
+    this.setOrigin(0.5, 0.5);
     
     // Create bullet group
     this.bullets = scene.add.group();
-    
-    // Create a simple rectangle for the player (placeholder)
-    this.createPlayerSprite();
 
     // WASD keys
     this.wasdKeys = {
@@ -37,15 +38,39 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     };
   }
 
-  private createPlayerSprite() {
-    // Create a simple colored rectangle for the player
-    const graphics = this.scene.add.graphics();
-    graphics.fillStyle(0x00ff00);
-    graphics.fillRect(-10, -10, 20, 20);
-    graphics.generateTexture('player', 20, 20);
-    graphics.destroy();
+  private lastWalkCycle: number = 0;
+  private lastWalkCycleTime: number = 0;
+  private currentTexture: string = 'player-idle';
+
+  private handlePlayerAnimations(isMoving: boolean) {
+    // Don't change texture if hit animation is playing
+    if (this.isInvulnerable && this.scene.time.now < this.invulnerabilityEndTime) {
+      return;
+    }
     
-    this.setTexture('player');
+    const currentTime = this.scene.time.now;
+    
+    if (isMoving) {
+      // Only recalculate walk cycle every 500ms
+      if (currentTime - this.lastWalkCycleTime > 500) {
+        this.lastWalkCycle = (this.lastWalkCycle + 1) % 2;
+        this.lastWalkCycleTime = currentTime;
+      }
+      
+      const targetTexture = this.lastWalkCycle === 0 ? 'player-walk-a' : 'player-walk-b';
+      
+      // Only change texture if different
+      if (this.currentTexture !== targetTexture) {
+        this.setTexture(targetTexture);
+        this.currentTexture = targetTexture;
+      }
+    } else {
+      // Use idle texture when not moving
+      if (this.currentTexture !== 'player-idle') {
+        this.setTexture('player-idle');
+        this.currentTexture = 'player-idle';
+      }
+    }
   }
 
   update(cursors: Phaser.Types.Input.Keyboard.CursorKeys) {
@@ -62,18 +87,28 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     
     // Handle keyboard movement
     this.setVelocity(0);
+    let isMoving = false;
     
     if (cursors.left?.isDown || this.wasdKeys.A.isDown) {
-      this.setVelocityX(-200);
+      this.setVelocityX(-this.movementSpeed);
+      isMoving = true;
     } else if (cursors.right?.isDown || this.wasdKeys.D.isDown) {
-      this.setVelocityX(200);
+      this.setVelocityX(this.movementSpeed);
+      isMoving = true;
     }
     
     if (cursors.up?.isDown || this.wasdKeys.W.isDown) {
-      this.setVelocityY(-200);
+      this.setVelocityY(-this.movementSpeed);
+      isMoving = true;
     } else if (cursors.down?.isDown || this.wasdKeys.S.isDown) {
-      this.setVelocityY(200);
+      this.setVelocityY(this.movementSpeed);
+      isMoving = true;
     }
+    
+    // Handle animations
+    this.handlePlayerAnimations(isMoving);
+    
+
     
     // Keep player within main area bounds (800x600)
     // X: 0 to 800
@@ -137,6 +172,8 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     return this.bullets;
   }
 
+  private hitAnimationActive: boolean = false;
+
   damage(damageAmount: number = 20) {
     if (this.isInvulnerable) {
       return; // Don't take damage if invulnerable
@@ -144,9 +181,23 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     
     this.health -= damageAmount;
     
-    // Start invulnerability frames (0.2 seconds)
+    // Start invulnerability frames (0.5 seconds)
     this.isInvulnerable = true;
-    this.invulnerabilityEndTime = this.scene.time.now + 200;
+    this.invulnerabilityEndTime = this.scene.time.now + 500;
+    
+    // Show hit texture for 0.5 seconds (only if not already active)
+    if (!this.hitAnimationActive) {
+      this.hitAnimationActive = true;
+      this.setTexture('player-hit');
+      this.currentTexture = 'player-hit';
+      
+      this.scene.time.delayedCall(500, () => {
+        // Return to idle after hit duration
+        this.setTexture('player-idle');
+        this.currentTexture = 'player-idle';
+        this.hitAnimationActive = false;
+      });
+    }
     
     // Start blinking effect
     this.startBlinking();
@@ -191,6 +242,33 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
 
   getCollisionDamage(): number {
     return this.collisionDamage;
+  }
+
+  // Upgrade methods
+  upgradeHealth(amount: number): void {
+    this.maxHealth += amount;
+    this.health += amount; // Also heal the player
+  }
+
+  upgradeDamage(amount: number): void {
+    this.bulletDamage += amount;
+  }
+
+  upgradeSpeed(amount: number): void {
+    this.movementSpeed += amount;
+  }
+
+  // Getter methods for stats
+  getMaxHealth(): number {
+    return this.maxHealth;
+  }
+
+  getBulletDamage(): number {
+    return this.bulletDamage;
+  }
+
+  getMovementSpeed(): number {
+    return this.movementSpeed;
   }
 }
 

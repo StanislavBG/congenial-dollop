@@ -169,7 +169,8 @@ export class SpawnManager {
               enemyType.speed,
               enemyType.damage,
               group.enemyType,
-              enemyType.color
+              enemyType.color,
+              enemyType.radius
             );
             
             // Apply enemy type specific properties

@@ -42,6 +42,18 @@ export const ENEMY_TYPES: Record<string, EnemyType> = {
     radius: 15
   },
 
+  blueDot: {
+    id: 'blueDot',
+    name: 'Blue Dot Boss',
+    health: 120, // 3x Yellow Dot health
+    speed: 100,  // Slightly slower than Yellow Dot
+    damage: 150, // 3x Yellow Dot damage
+    sprite: 'enemy',
+    scale: 0.8,  // 2-3x larger than Yellow Dot (0.5 * 1.6 = 0.8)
+    color: 0x0080ff,
+    radius: 25   // Larger radius for bigger sprite
+  },
+
   basic: {
     id: 'basic',
     name: 'Basic Enemy',
