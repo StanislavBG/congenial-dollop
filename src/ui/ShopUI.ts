@@ -12,7 +12,8 @@ export class ShopUI {
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
-    this.container = scene.add.container(400, 420); // Moved to bottom half, below messages
+    // Position will be set dynamically in show() method
+    this.container = scene.add.container(0, 0);
     this.container.setVisible(false);
     this.generateCards();
   }
@@ -63,6 +64,14 @@ export class ShopUI {
     this.onCardSelected = onCardSelected;
     this.currentLevel = level || 1;
     this.isVisible = true;
+    
+    // Position shop in bottom half of screen, centered
+    const screenWidth = this.scene.cameras.main.width;
+    const screenHeight = this.scene.cameras.main.height;
+    const shopX = screenWidth / 2;
+    const shopY = screenHeight * 0.75; // 75% down the screen (bottom half)
+    
+    this.container.setPosition(shopX, shopY);
     this.container.setVisible(true);
     this.generateCards(); // Generate new cards each time
     this.createShopInterface();
@@ -77,75 +86,90 @@ export class ShopUI {
   private createShopInterface(): void {
     this.clearCards();
     
-    // Create expanded shop background
-    const background = this.scene.add.rectangle(0, 0, 600, 150, 0x000000, 0.8);
+    // Calculate responsive shop dimensions
+    const screenWidth = this.scene.cameras.main.width;
+    const screenHeight = this.scene.cameras.main.height;
+    const shopWidth = Math.min(800, Math.floor(screenWidth * 0.8)); // 80% of screen width, max 800px
+    const shopHeight = Math.min(200, Math.floor(screenHeight * 0.15)); // 15% of screen height, max 200px
+    const titleFontSize = Math.max(24, Math.floor(screenWidth * 0.018)); // 1.8% of screen width, min 24px
+    
+    // Create responsive shop background
+    const background = this.scene.add.rectangle(0, 0, shopWidth, shopHeight, 0x000000, 0.8);
     background.setStrokeStyle(2, 0xffffff);
     this.container.add(background);
     
-    // Create shop title
-    const title = this.scene.add.text(0, -50, 'SHOP', {
-      fontSize: '20px',
+    // Create shop title with responsive font size
+    const title = this.scene.add.text(0, -Math.floor(shopHeight * 0.4), 'SHOP', {
+      fontSize: `${titleFontSize}px`,
       color: '#ffffff',
       stroke: '#000000',
       strokeThickness: 2
     }).setOrigin(0.5);
     this.container.add(title);
     
-    // Create smaller cards
+    // Create responsive cards
     this.cards.forEach((card, index) => {
-      const cardContainer = this.createCard(card, index);
+      const cardContainer = this.createCard(card, index, shopWidth, shopHeight);
       this.cardSprites.push(cardContainer);
       this.container.add(cardContainer);
     });
   }
 
-  private createCard(card: ShopCard, index: number): Phaser.GameObjects.Container {
+  private createCard(card: ShopCard, index: number, shopWidth: number, shopHeight: number): Phaser.GameObjects.Container {
     const cardContainer = this.scene.add.container(0, 0);
     
-    // Calculate expanded card position
-    const cardWidth = 150;
-    const cardHeight = 80;
-    const spacing = 20;
+    // Calculate responsive card dimensions
+    const cardWidth = Math.min(180, Math.floor(shopWidth * 0.25)); // 25% of shop width, max 180px
+    const cardHeight = Math.min(100, Math.floor(shopHeight * 0.6)); // 60% of shop height, max 100px
+    const spacing = Math.max(15, Math.floor(cardWidth * 0.1)); // 10% of card width, min 15px
+    
+    // Calculate responsive font sizes
+    const titleFontSize = Math.max(14, Math.floor(cardWidth * 0.08)); // 8% of card width, min 14px
+    const valueFontSize = Math.max(18, Math.floor(cardWidth * 0.12)); // 12% of card width, min 18px
+    const typeFontSize = Math.max(10, Math.floor(cardWidth * 0.07)); // 7% of card width, min 10px
+    const numberFontSize = Math.max(12, Math.floor(cardWidth * 0.08)); // 8% of card width, min 12px
+    
+    // Calculate card positioning within shop
     const totalWidth = (this.cards.length * cardWidth) + ((this.cards.length - 1) * spacing);
     const startX = -totalWidth / 2 + cardWidth / 2;
     const x = startX + index * (cardWidth + spacing);
-    const y = 10; // Centered in shop area
+    const y = Math.floor(shopHeight * 0.1); // 10% from top of shop area
     
     // Card background
     const cardBg = this.scene.add.rectangle(x, y, cardWidth, cardHeight, card.color, 0.8);
     cardBg.setStrokeStyle(1, 0xffffff);
     cardContainer.add(cardBg);
     
-    // Card title (expanded)
-    const title = this.scene.add.text(x, y - 25, card.name, {
-      fontSize: '14px',
+    // Card title (responsive)
+    const title = this.scene.add.text(x, y - Math.floor(cardHeight * 0.3), card.name, {
+      fontSize: `${titleFontSize}px`,
       color: '#ffffff',
       stroke: '#000000',
       strokeThickness: 1
     }).setOrigin(0.5);
     cardContainer.add(title);
     
-    // Card value (expanded)
+    // Card value (responsive)
     const valueText = this.scene.add.text(x, y, `+${card.value}`, {
-      fontSize: '20px',
+      fontSize: `${valueFontSize}px`,
       color: '#ffff00',
       stroke: '#000000',
       strokeThickness: 2
     }).setOrigin(0.5);
     cardContainer.add(valueText);
     
-    // Card type indicator (expanded)
-    const typeText = this.scene.add.text(x, y + 20, card.type.toUpperCase(), {
-      fontSize: '12px',
+    // Card type indicator (responsive)
+    const typeText = this.scene.add.text(x, y + Math.floor(cardHeight * 0.25), card.type.toUpperCase(), {
+      fontSize: `${typeFontSize}px`,
       color: '#ffffff',
       stroke: '#000000',
       strokeThickness: 1
     }).setOrigin(0.5);
     cardContainer.add(typeText);
     
-    // Card number for keyboard selection
-    const cardNumber = this.scene.add.text(x + 50, y - 30, `[${index + 1}]`, {
-      fontSize: '14px',
+    // Card number for keyboard selection (responsive)
+    const cardNumber = this.scene.add.text(x + Math.floor(cardWidth * 0.35), y - Math.floor(cardHeight * 0.35), `[${index + 1}]`, {
+      fontSize: `${numberFontSize}px`,
       color: '#ffff00',
       stroke: '#000000',
       strokeThickness: 2

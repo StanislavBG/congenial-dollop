@@ -12,7 +12,17 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   private enemyColor: number;
 
   constructor(scene: Phaser.Scene, x: number, y: number, health: number = 30, moveSpeed: number = 120, damage: number = 20, enemyType: string = 'redDot', color: number = 0xff0000, radius: number = 12) {
-    super(scene, x, y, 'enemy');
+    // Create a temporary texture name for initialization
+    const tempTextureName = `enemy_temp_${Date.now()}`;
+    
+    // Create a basic circle texture for initialization
+    const graphics = scene.add.graphics();
+    graphics.fillStyle(color);
+    graphics.fillCircle(0, 0, radius);
+    graphics.generateTexture(tempTextureName, radius * 2, radius * 2);
+    graphics.destroy();
+    
+    super(scene, x, y, tempTextureName);
     
     this.health = health;
     this.maxHealth = health;
@@ -26,11 +36,15 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     scene.add.existing(this);
     scene.physics.add.existing(this);
     
-    // Set up enemy properties
-    this.setScale(0.4);
+    // Use Phaser's built-in bounds system instead of manual checking
+    this.setCollideWorldBounds(true);
+    this.body!.bounce.set(0.2, 0.2); // Bounce off walls
     
-    // Create enemy sprite with proper radius
+    // Create the proper enemy sprite with highlights
     this.createEnemySprite(radius);
+    
+    // Set scale AFTER creating the sprite (will be overridden by SpawnManager if needed)
+    this.setScale(0.4);
   }
 
   private createEnemySprite(radius: number) {
@@ -53,7 +67,9 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     graphics.generateTexture(textureName, radius * 2, radius * 2);
     graphics.destroy();
     
+    // Set the texture and ensure it's visible
     this.setTexture(textureName);
+    this.setVisible(true);
   }
 
   private getHighlightColor(): number {
@@ -72,6 +88,11 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   update(player: any) {
     // Safety check: ensure we have a valid scene and body
     if (!this.scene || !this.body) {
+      return;
+    }
+    
+    // Check if game is paused - don't update if paused
+    if ((this.scene as any).gameStateManager && !(this.scene as any).gameStateManager.isPlaying()) {
       return;
     }
     
@@ -94,29 +115,8 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       }
     }
     
-    // Keep enemy within bounds (main area: 800x600)
-    if (this.x < 12) {
-      this.x = 12;
-      this.setVelocityX(0);
-    } else if (this.x > 788) {
-      this.x = 788;
-      this.setVelocityX(0);
-    }
-    
-    if (this.y < 12) {
-      this.y = 12;
-      this.setVelocityY(0);
-    } else if (this.y > 588) {
-      this.y = 588;
-      this.setVelocityY(0);
-    }
-    
-    // Additional safety check - if somehow outside bounds, force back in
-    if (this.x < 0 || this.x > 800 || this.y < 0 || this.y > 600) {
-      this.x = Math.max(12, Math.min(788, this.x));
-      this.y = Math.max(12, Math.min(588, this.y));
-      this.setVelocity(0, 0);
-    }
+    // Phaser's setCollideWorldBounds handles all bounds checking automatically
+    // No need for manual bounds checking anymore
   }
 
   takeDamage(amount: number = 10) {
@@ -124,7 +124,9 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     // Flash white when damaged
     this.setTint(0xffffff);
     this.scene.time.delayedCall(100, () => {
-      this.clearTint();
+      if (this.active) {
+        this.clearTint();
+      }
     });
     
     return this.health <= 0;
@@ -140,7 +142,9 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     // Flash red when hitting player
     this.setTint(0xff0000);
     this.scene.time.delayedCall(200, () => {
-      this.clearTint();
+      if (this.active) {
+        this.clearTint();
+      }
     });
   }
 
@@ -149,7 +153,9 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     // Flash orange when colliding with other enemies
     this.setTint(0xff8800);
     this.scene.time.delayedCall(150, () => {
-      this.clearTint();
+      if (this.active) {
+        this.clearTint();
+      }
     });
   }
 

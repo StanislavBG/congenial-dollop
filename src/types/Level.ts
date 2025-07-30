@@ -18,7 +18,7 @@ export interface GameSettings {
 }
 
 export const GAME_SETTINGS: GameSettings = {
-  playerHealth: 500,
+  playerHealth: 20,
   shootInterval: 300,
   bulletDamage: 10
 };

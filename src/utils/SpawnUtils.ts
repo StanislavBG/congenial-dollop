@@ -9,9 +9,7 @@ export class SpawnUtils implements SpawnUtilities {
    * Calculate distance between two positions
    */
   distance(pos1: {x: number, y: number}, pos2: {x: number, y: number}): number {
-    const dx = pos1.x - pos2.x;
-    const dy = pos1.y - pos2.y;
-    return Math.sqrt(dx * dx + dy * dy);
+    return Phaser.Math.Distance.Between(pos1.x, pos1.y, pos2.x, pos2.y);
   }
 
   /**
@@ -188,8 +186,8 @@ export class SpawnUtils implements SpawnUtilities {
       let x: number, y: number;
       
       do {
-        const angle = Math.random() * 2 * Math.PI;
-        const distance = Math.random() * spreadRadius;
+        const angle = Phaser.Math.Between(0, 2 * Math.PI);
+        const distance = Phaser.Math.Between(0, spreadRadius);
         x = centerX + Math.cos(angle) * distance;
         y = centerY + Math.sin(angle) * distance;
         

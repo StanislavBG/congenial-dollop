@@ -5,7 +5,7 @@ A 2D top-down shooter game built with Phaser.js and TypeScript.
 ## Features
 
 - **Player Movement**: Use arrow keys to move around
-- **Shooting**: Press spacebar to shoot bullets towards the mouse cursor
+- **Shooting**: Automatic shooting at closest enemy
 - **Enemy AI**: Enemies move randomly and chase the player when close
 - **Health System**: Player and enemies have health that decreases when hit
 - **Score System**: Earn points by defeating enemies
@@ -22,6 +22,8 @@ A 2D top-down shooter game built with Phaser.js and TypeScript.
    ```bash
    npm run dev
    ```
+   
+   > **Important**: The dev server automatically kills any existing process on port 3000 before starting. Only one dev server can run at a time.
 
 3. **Open your browser** and navigate to `http://localhost:3000`
 
@@ -29,7 +31,7 @@ A 2D top-down shooter game built with Phaser.js and TypeScript.
 
 - **Arrow Keys**: Move the player
 - **Spacebar**: Shoot bullets
-- **Mouse**: Aim bullets (bullets shoot towards mouse cursor)
+- **Auto-shoot**: Automatically shoots at closest enemy
 
 ## Game Mechanics
 
@@ -41,6 +43,13 @@ A 2D top-down shooter game built with Phaser.js and TypeScript.
 
 ## Development
 
+### Development Server Rules
+- **Single Instance**: Only one development server can run at a time
+- **Port 3000**: The server always runs on port 3000
+- **Auto Cleanup**: Running `npm run dev` automatically kills any existing dev server before starting a new one
+
+### Commands
+- **Start development server**: `npm run dev`
 - **Build for production**: `npm run build`
 - **Preview production build**: `npm run preview`
 - **Lint code**: `npm run lint`

@@ -41,13 +41,13 @@ export class SpawnManager {
         return GLOBAL_EPICENTERS.BOTTOM_RIGHT;
       case 'RANDOM':
         const allEpicenters = Object.values(GLOBAL_EPICENTERS);
-        return allEpicenters[Math.floor(Math.random() * allEpicenters.length)];
+        return allEpicenters[Phaser.Math.Between(0, allEpicenters.length - 1)];
       case 'RANDOM_TOP':
         const topEpicenters = [GLOBAL_EPICENTERS.TOP_LEFT, GLOBAL_EPICENTERS.TOP_MIDDLE, GLOBAL_EPICENTERS.TOP_RIGHT];
-        return topEpicenters[Math.floor(Math.random() * topEpicenters.length)];
+        return topEpicenters[Phaser.Math.Between(0, topEpicenters.length - 1)];
       case 'RANDOM_BOTTOM':
         const bottomEpicenters = [GLOBAL_EPICENTERS.BOTTOM_LEFT, GLOBAL_EPICENTERS.BOTTOM_MIDDLE, GLOBAL_EPICENTERS.BOTTOM_RIGHT];
-        return bottomEpicenters[Math.floor(Math.random() * bottomEpicenters.length)];
+        return bottomEpicenters[Phaser.Math.Between(0, bottomEpicenters.length - 1)];
       default:
         return GLOBAL_EPICENTERS.TOP_MIDDLE;
     }

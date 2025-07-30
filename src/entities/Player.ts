@@ -3,7 +3,7 @@ import Phaser from 'phaser';
 export class Player extends Phaser.Physics.Arcade.Sprite {
   private bullets!: Phaser.GameObjects.Group;
   private health: number;
-  private maxHealth: number = 100;
+  private maxHealth: number = 20;
   private lastShootTime: number = 0;
   private shootCooldown: number = 200; // milliseconds
   private wasdKeys!: { W: Phaser.Input.Keyboard.Key, A: Phaser.Input.Keyboard.Key, S: Phaser.Input.Keyboard.Key, D: Phaser.Input.Keyboard.Key };
@@ -12,8 +12,8 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   private collisionDamage: number = 15; // Damage player does to enemies on collision
   private bulletDamage: number = 10; // Base bullet damage
   private movementSpeed: number = 200; // Base movement speed
-  constructor(scene: Phaser.Scene, x: number, y: number, health: number = 100) {
-    super(scene, x, y, 'player-idle');
+  constructor(scene: Phaser.Scene, x: number, y: number, health: number = 20) {
+    super(scene, x, y, 'dog-run');
     
     this.health = health;
     this.maxHealth = health;
@@ -22,9 +22,24 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     scene.add.existing(this);
     scene.physics.add.existing(this);
     
-    // Set proper scale and origin
-    this.setScale(0.25); // Scale down for 256x256 sprites
+    // Set proper scale and origin for dog sprites
+    this.setScale(0.1); // Much smaller scale for 682x682 frames
     this.setOrigin(0.5, 0.5);
+    
+    // Don't start animation immediately - let handlePlayerAnimations handle it
+    if ((this.scene as any).USE_TEST_MODE) {
+      console.log('Dog sprite created, ready for animation');
+    }
+    
+    // Use Phaser's built-in bounds system instead of manual checking
+    this.setCollideWorldBounds(true);
+    this.body!.bounce.set(0.1, 0.1); // Small bounce when hitting walls
+    
+    // Debug: Show collision box outline only in test mode
+    if ((this.scene as any).USE_TEST_MODE) {
+      this.body!.debugBodyColor = 0xff0000; // Red outline
+      this.body!.debugShowBody = true;
+    }
     
     // Create bullet group
     this.bullets = scene.add.group();
@@ -38,44 +53,42 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     };
   }
 
-  private lastWalkCycle: number = 0;
-  private lastWalkCycleTime: number = 0;
-  private currentTexture: string = 'player-idle';
-
   private handlePlayerAnimations(isMoving: boolean) {
-    // Don't change texture if hit animation is playing
+    // Check if game is paused - don't animate if paused
+    if ((this.scene as any).gameStateManager && !(this.scene as any).gameStateManager.isPlaying()) {
+      return;
+    }
+    
+    // Don't change animation if hit animation is playing
     if (this.isInvulnerable && this.scene.time.now < this.invulnerabilityEndTime) {
       return;
     }
     
-    const currentTime = this.scene.time.now;
-    
     if (isMoving) {
-      // Only recalculate walk cycle every 500ms
-      if (currentTime - this.lastWalkCycleTime > 500) {
-        this.lastWalkCycle = (this.lastWalkCycle + 1) % 2;
-        this.lastWalkCycleTime = currentTime;
-      }
-      
-      const targetTexture = this.lastWalkCycle === 0 ? 'player-walk-a' : 'player-walk-b';
-      
-      // Only change texture if different
-      if (this.currentTexture !== targetTexture) {
-        this.setTexture(targetTexture);
-        this.currentTexture = targetTexture;
+      // Play the dog-run animation when moving
+      if (!this.anims.isPlaying) {
+        if ((this.scene as any).USE_TEST_MODE) {
+          console.log('Player moving, playing dog-run animation');
+        }
+        this.play('dog-run');
       }
     } else {
-      // Use idle texture when not moving
-      if (this.currentTexture !== 'player-idle') {
-        this.setTexture('player-idle');
-        this.currentTexture = 'player-idle';
+      // Stop animation when not moving
+      if ((this.scene as any).USE_TEST_MODE) {
+        console.log('Player stopped, stopping animation');
       }
+      this.stop();
     }
   }
 
   update(cursors: Phaser.Types.Input.Keyboard.CursorKeys) {
     // Safety check: ensure we have a valid scene and body
     if (!this.scene || !this.body) {
+      return;
+    }
+    
+    // Check if game is paused - don't update if paused
+    if ((this.scene as any).gameStateManager && !(this.scene as any).gameStateManager.isPlaying()) {
       return;
     }
     
@@ -108,33 +121,21 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     // Handle animations
     this.handlePlayerAnimations(isMoving);
     
-
+    // Flip the dog based on movement direction
+    if (this.body!.velocity.x < 0) {
+      this.setFlipX(true); // Flip left when moving left
+    } else if (this.body!.velocity.x > 0) {
+      this.setFlipX(false); // Face right when moving right
+    }
+    // Don't change flip when moving only vertically
     
-    // Keep player within main area bounds (800x600)
-    // X: 0 to 800
-    // Y: 0 to 600
-    if (this.x < 10) {
-      this.x = 10;
-      this.setVelocityX(0);
-    } else if (this.x > 790) {
-      this.x = 790;
-      this.setVelocityX(0);
+    // Debug: Log movement state occasionally only in test mode
+    if ((this.scene as any).USE_TEST_MODE && Math.random() < 0.01) { // 1% chance to log (to avoid spam)
+      console.log('Movement debug - isMoving:', isMoving, 'velocity:', this.body!.velocity.x, this.body!.velocity.y);
     }
     
-    if (this.y < 10) {
-      this.y = 10;
-      this.setVelocityY(0);
-    } else if (this.y > 590) {
-      this.y = 590;
-      this.setVelocityY(0);
-    }
-    
-    // Additional safety check - if somehow outside bounds, force back in
-    if (this.x < 0 || this.x > 800 || this.y < 0 || this.y > 600) {
-      this.x = Math.max(10, Math.min(790, this.x));
-      this.y = Math.max(10, Math.min(590, this.y));
-      this.setVelocity(0, 0);
-    }
+    // Phaser's setCollideWorldBounds handles all bounds checking automatically
+    // No need for manual bounds checking anymore
   }
 
   shootAt(targetX: number, targetY: number, bullet?: Bullet) {
@@ -143,7 +144,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
       return;
     }
     
-    const currentTime = Date.now();
+    const currentTime = this.scene.time.now; // Use Phaser time instead of Date.now()
     if (currentTime - this.lastShootTime < this.shootCooldown) {
       return;
     }
@@ -172,8 +173,6 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     return this.bullets;
   }
 
-  private hitAnimationActive: boolean = false;
-
   damage(damageAmount: number = 20) {
     if (this.isInvulnerable) {
       return; // Don't take damage if invulnerable
@@ -181,42 +180,29 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     
     this.health -= damageAmount;
     
-    // Start invulnerability frames (0.5 seconds)
+    // Start invulnerability frames (0.15 seconds)
     this.isInvulnerable = true;
-    this.invulnerabilityEndTime = this.scene.time.now + 500;
+    this.invulnerabilityEndTime = this.scene.time.now + 150;
     
-    // Show hit texture for 0.5 seconds (only if not already active)
-    if (!this.hitAnimationActive) {
-      this.hitAnimationActive = true;
-      this.setTexture('player-hit');
-      this.currentTexture = 'player-hit';
-      
-      this.scene.time.delayedCall(500, () => {
-        // Return to idle after hit duration
-        this.setTexture('player-idle');
-        this.currentTexture = 'player-idle';
-        this.hitAnimationActive = false;
-      });
-    }
+    // For dog, we'll just use the blinking effect for hit feedback
+    // since we don't have a separate hit animation
     
     // Start blinking effect
     this.startBlinking();
   }
 
   private startBlinking() {
-    let blinkCount = 0;
-    const maxBlinks = 4; // 4 blinks over 0.2 seconds
-    
-    const blinkInterval = setInterval(() => {
-      if (blinkCount >= maxBlinks || !this.isInvulnerable) {
-        clearInterval(blinkInterval);
+    // Use Phaser tweens instead of setInterval
+    this.scene.tweens.add({
+      targets: this,
+      alpha: 0.3,
+      duration: 50,
+      yoyo: true,
+      repeat: 3,
+      onComplete: () => {
         this.clearTint();
-        return;
       }
-      
-      this.setTint(blinkCount % 2 === 0 ? 0xffffff : 0x00ff00);
-      blinkCount++;
-    }, 50); // Blink every 50ms
+    });
   }
 
   // Deal damage to enemy on collision
@@ -286,7 +272,9 @@ class Bullet extends Phaser.Physics.Arcade.Sprite {
     
     // Auto-destroy after 2 seconds
     scene.time.delayedCall(2000, () => {
-      this.destroy();
+      if (this.active) {
+        this.destroy();
+      }
     });
   }
 

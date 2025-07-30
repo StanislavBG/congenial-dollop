@@ -74,8 +74,8 @@ export const LEVELS: Record<number, Level> = {
       { startTime: 7.0, enemyCount: 3, enemyType: 'yellowDot', epicenterStrategy: 'BOTTOM_LEFT', spawnPattern: 'circle', minDistance: 35 },
       { startTime: 8.5, enemyCount: 4, enemyType: 'yellowDot', epicenterStrategy: 'BOTTOM_RIGHT', spawnPattern: 'circle', minDistance: 35 },
       // Randomized mixed group
-      { startTime: 10.0, enemyCount: 2 + Math.floor(Math.random()*2), enemyType: 'redDot', epicenterStrategy: 'TOP_MIDDLE', spawnPattern: 'circle', minDistance: 35 },
-      { startTime: 11.0, enemyCount: 2 + Math.floor(Math.random()*3), enemyType: 'yellowDot', epicenterStrategy: 'BOTTOM_MIDDLE', spawnPattern: 'circle', minDistance: 35 }
+      { startTime: 10.0, enemyCount: 2 + Phaser.Math.Between(0, 1), enemyType: 'redDot', epicenterStrategy: 'TOP_MIDDLE', spawnPattern: 'circle', minDistance: 35 },
+      { startTime: 11.0, enemyCount: 2 + Phaser.Math.Between(0, 2), enemyType: 'yellowDot', epicenterStrategy: 'BOTTOM_MIDDLE', spawnPattern: 'circle', minDistance: 35 }
     ],
     scoreToComplete: 160 // 16+ enemies × 10 points each
   },
